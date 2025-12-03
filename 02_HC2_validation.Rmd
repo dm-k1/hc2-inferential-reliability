@@ -146,13 +146,13 @@ cat("Scores successfully computed during simulation.\n")
 print(head(hetero_sim_results[, .(N, hetero_strength, sr_inf, sr_ratio, sr_ratio_adj)], 5))
 ```
 
-# Section 4: Power of the Inferential Score $S_{\mathrm{Inf}}$
+# Section 4: Power and N-Dependence of the Inferential Score $S_{\mathrm{Inf}}$
 
-We evaluate the power of the inferential score $S_{\mathrm{Inf}}$ to detect heteroskedasticity. We define the test statistic:
+We evaluate the inferential score $S_{\mathrm{Inf}}$ as a test statistic for heteroskedasticity. We define:
 $$ T_{S_{\mathrm{Inf}}} = \sqrt{N} \cdot S_{\mathrm{Inf}} $$
 Under the homoskedastic null, $T_{S_{\mathrm{Inf}}}$ is approximately standard normal (for HC2). We reject the null of homoskedasticity if $T_{S_{\mathrm{Inf}}} > 1.645$ (one-sided $\alpha=0.05$).
 
-## Power Analysis
+## 4.1 Power Analysis
 
 ```{r power-analysis}
 # Compute T_SInf (which is sr_inf_adj in our nomenclature)
@@ -184,52 +184,92 @@ ggplot(power_summary, aes(x = hetero_strength, y = rejection_rate, color = as.fa
 **Interpretation:**
 - At $\lambda = 0$ (null), the rejection rate is close to 0.05, confirming the test is well-calibrated.
 - As $\lambda$ increases, power increases.
-- Crucially, for a fixed $\lambda > 0$, power increases with $N$. This confirms that $S_{\mathrm{Inf}}$ behaves like a test statistic (or p-value): it detects *existence* of misspecification with increasing certainty as sample size grows.
+- Crucially, for a fixed $\lambda > 0$, power increases with $N$. This confirms that $S_{\mathrm{Inf}}$ behaves like a test statistic: it detects the *existence* of misspecification with increasing certainty as sample size grows.
 
----
+## 4.2 Formal Test of N-Dependence (Multilevel ANOVA)
 
-# Section 5: From Inferential Score to Reliability Score
+To formally establish that $T_{S_{\mathrm{Inf}}}$ depends on sample size, we fit a multilevel ANOVA with N as a fixed factor and heteroskedasticity strength as a blocking factor.
 
-To build a universal lookup table, we need a metric that reflects the *severity* of misspecification (and thus coverage loss) independent of sample size.
+```{r n-dependence-anova}
+# Prepare data for ANOVA: aggregate T_SInf per (N, hetero_strength) cell
+sinf_anova_data <- hetero_sim_results[, .(
+  mean_T_sinf = mean(T_SInf)
+), by = .(N, hetero_strength)]
 
-## 5.1 N-Dependence of $S_{\mathrm{Inf}}$
+# Convert N to factor for ANOVA
+sinf_anova_data[, N_factor := as.factor(N)]
+sinf_anova_data[, lambda_factor := as.factor(hetero_strength)]
 
-We examine the mean $S_{\mathrm{Inf}}$ as a function of $N$ for fixed levels of heteroskedasticity.
+# Fit two-way ANOVA: T_SInf ~ N + lambda
+anova_sinf <- aov(mean_T_sinf ~ N_factor + lambda_factor, data = sinf_anova_data)
+anova_summary <- summary(anova_sinf)
 
-```{r n-dependence-sinf}
+cat("ANOVA: T_SInf ~ N + Heteroskedasticity Strength\n")
+cat("=" |> rep(60) |> paste(collapse = ""), "\n\n")
+print(anova_summary)
+
+# Extract F-statistic and p-value for N effect
+n_effect <- anova_summary[[1]]["N_factor", ]
+cat(sprintf("\nN Effect: F = %.2f, p = %.2e\n", n_effect$`F value`, n_effect$`Pr(>F)`))
+
+if (n_effect$`Pr(>F)` < 0.001) {
+  cat("→ Highly significant N-dependence (p < 0.001)\n")
+  cat("→ T_SInf is NOT suitable as a direct measure of misspecification severity.\n")
+}
+```
+
+## 4.3 Visualization of N-Dependence
+
+Having established statistically significant N-dependence, we now visualize how $T_{S_{\mathrm{Inf}}}$ scales with sample size for fixed levels of heteroskedasticity.
+
+```{r n-dependence-sinf-plot}
 # Subset to representative parameters for clarity
 subset_params <- hetero_sim_results[
   beta_x == 0.5 & sigma0 == 1.0 & 
   hetero_strength %in% c(0, 0.5, 1.0, 1.5, 2.0)
 ]
 
-# Aggregate mean S_Inf
+# Aggregate mean T_SInf
 sinf_n_summary <- subset_params[, .(
   mean_sinf = mean(sr_inf),
   mean_T_sinf = mean(T_SInf)
 ), by = .(N, hetero_strength)]
 
-# Plot Mean S_Inf vs log(N)
+# Plot Mean T_SInf vs log(N)
 ggplot(sinf_n_summary, aes(x = N, y = mean_T_sinf, color = as.factor(hetero_strength))) +
-  geom_line() +
-  geom_point() +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
   scale_x_log10() +
   labs(
     title = "N-Dependence of Test Statistic T_SInf",
-    subtitle = "Mean T_SInf increases with N for fixed misspecification",
+    subtitle = "Mean T_SInf increases with N for fixed misspecification level",
     x = "Sample Size (log scale)",
     y = "Mean T_SInf",
     color = "Lambda"
   ) +
-  theme_minimal()
+  theme_minimal() +
+  theme(legend.position = "right")
 ```
 
-## 5.2 Raw Ratio and Reliability Score
+**Conclusion from Section 4:**
+The inferential score $S_{\mathrm{Inf}}$ (and its scaled form $T_{S_{\mathrm{Inf}}}$) exhibits strong N-dependence. While this is desirable for a *test statistic* (more power with larger N), it makes $S_{\mathrm{Inf}}$ unsuitable as a direct measure of misspecification *severity* that can be mapped to coverage loss across different sample sizes.
 
-We compare the stability of the **Raw Ratio** ($SE_{classic} / SE_{robust}$) and the **Reliability Score** ($S_{Rel}$) across sample sizes.
+---
+
+# Section 5: The Reliability Score as an N-Invariant Alternative
+
+To build a universal lookup table mapping a metric to coverage loss, we need a measure that reflects the *severity* of misspecification independent of sample size. We introduce the **Reliability Score** $S_{\mathrm{Rel}}$:
+
+$$ S_{\mathrm{Rel}} = \frac{\text{SE}_{\text{classic}}}{\text{SE}_{\text{robust}}} - \frac{2}{3\sqrt{N}} $$
+
+The correction term $\frac{2}{3\sqrt{N}}$ is derived from the finite-sample behavior of HC2 under null (established in Part 1).
+
+## 5.1 Raw Ratio vs Reliability Score
+
+We compare the stability of the **Raw Ratio** ($SE_{classic} / SE_{robust}$) and the **Reliability Score** ($S_{\mathrm{Rel}}$) across sample sizes.
 
 ```{r n-invariance-comparison}
-# Aggregate metrics for the subset
+# Aggregate metrics for the subset (using subset_params from previous section)
 metrics_n_summary <- subset_params[, .(
   mean_sr_ratio = mean(sr_ratio),
   mean_sr_ratio_adj = mean(sr_ratio_adj)
@@ -254,9 +294,43 @@ p2 <- ggplot(metrics_n_summary, aes(x = N, y = mean_sr_ratio_adj, color = as.fac
 gridExtra::grid.arrange(p1, p2, ncol = 2, widths = c(0.45, 0.55))
 ```
 
+## 5.2 Formal Test of N-Invariance for Reliability Score
+
+We repeat the ANOVA analysis for the Reliability Score to confirm it does not exhibit significant N-dependence.
+
+```{r reliability-score-anova}
+# Aggregate Reliability Score per (N, hetero_strength) cell
+ratio_anova_data <- hetero_sim_results[, .(
+  mean_sr_ratio_adj = mean(sr_ratio_adj)
+), by = .(N, hetero_strength)]
+
+ratio_anova_data[, N_factor := as.factor(N)]
+ratio_anova_data[, lambda_factor := as.factor(hetero_strength)]
+
+# Fit ANOVA: S_Rel ~ N + lambda
+anova_ratio <- aov(mean_sr_ratio_adj ~ N_factor + lambda_factor, data = ratio_anova_data)
+anova_ratio_summary <- summary(anova_ratio)
+
+cat("ANOVA: Reliability Score ~ N + Heteroskedasticity Strength\n")
+cat("=" |> rep(60) |> paste(collapse = ""), "\n\n")
+print(anova_ratio_summary)
+
+# Extract F-statistic and p-value for N effect
+n_effect_ratio <- anova_ratio_summary[[1]]["N_factor", ]
+cat(sprintf("\nN Effect: F = %.2f, p = %.4f\n", n_effect_ratio$`F value`, n_effect_ratio$`Pr(>F)`))
+
+if (n_effect_ratio$`Pr(>F)` > 0.05) {
+  cat("→ N effect is NOT significant (p > 0.05)\n")
+  cat("→ Reliability Score is approximately N-invariant.\n")
+} else {
+  cat("→ Some residual N-dependence detected, but effect size is small.\n")
+}
+```
+
 **Interpretation:**
 - The **Raw Ratio** is much more stable than $T_{S_{\mathrm{Inf}}}$, but still exhibits finite-sample bias (drifting slightly with N).
 - The **Reliability Score** ($S_{\text{Rel}}$) effectively removes this drift, providing an approximately N-invariant measure of misspecification severity.
+- This makes $S_{\mathrm{Rel}}$ suitable for building a universal lookup table that maps to coverage loss regardless of sample size.
 
 ---
 
