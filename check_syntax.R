@@ -1,5 +1,6 @@
-source_files <- c('R/00_config.R', 'R/10_dgp_and_fits.R', 'R/20_metrics.R', 
-                  'R/30_null_calibration.R', 'R/40_hetero_sims.R', 
+source_files <- c('R/00_config.R', 'R/10_dgp_and_fits.R', 'R/20_metrics.R',
+                  'R/30_null_calibration.R', 'R/40_hetero_sims.R',
+                  'R/45_inference_breakage_sims.R',
                   'R/50_invariance_and_lookup.R', 'R/60_tables_and_plots.R')
 
 for (f in source_files) {
