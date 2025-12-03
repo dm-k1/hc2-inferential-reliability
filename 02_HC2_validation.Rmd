@@ -223,36 +223,10 @@ ggplot(sinf_summary[hetero_strength %in% c(0, 0.5, 1.0, 1.5, 2.0)],
   theme_minimal()
 ```
 
-### Classical Coverage Degradation
-
-We visualize how classical CI coverage degrades with increasing heteroskedasticity.
-
-```{r coverage-degradation, fig.width=10, fig.height=5}
-# Aggregate coverage by N and hetero_strength
-coverage_summary <- hetero_sim_results[, .(
-  mean_coverage = mean(coverage) * 100,
-  se_coverage = sd(coverage) / sqrt(.N) * 100
-), by = .(N, hetero_strength)]
-
-ggplot(coverage_summary, aes(x = hetero_strength, y = mean_coverage, color = as.factor(N))) +
-  geom_line(size = 1) +
-  geom_point(size = 2) +
-  geom_hline(yintercept = 95, linetype = "dashed", color = "gray50") +
-  labs(
-    title = "Classical CI Coverage Degradation Under Heteroskedasticity",
-    subtitle = "Coverage of classical Wald intervals (using SE_classic)",
-    x = "Heteroskedasticity Strength (lambda)",
-    y = "Coverage (%)",
-    color = "Sample Size (N)"
-  ) +
-  theme_minimal() +
-  coord_cartesian(ylim = c(50, 100))
-```
-
 **Key Observations:**
-- Under the null ($\lambda = 0$), $S_{\mathrm{Inf}}$ is centered near zero and classical coverage is near 95%.
-- As heteroskedasticity increases, $S_{\mathrm{Inf}}$ shifts positive (robust SE > classic SE) and classical coverage degrades.
-- The relationship between $S_{\mathrm{Inf}}$ and coverage loss motivates using this score as a diagnostic for inference reliability.
+- Under the null ($\lambda = 0$), $S_{\mathrm{Inf}}^{*}$ is centered near zero across all sample sizes.
+- As heteroskedasticity increases, $S_{\mathrm{Inf}}^{*}$ shifts positive (robust SE > classic SE).
+- The score increases with both $\lambda$ and $N$, confirming its behavior as a test statistic.
 
 # Section 4: Power and N-Dependence of the Inferential Score $S_{\mathrm{Inf}}$
 
@@ -463,6 +437,34 @@ if (n_effect_ratio$`Pr(>F)` > 0.05) {
 - The **Raw Ratio** is much more stable than $T_{S_{\mathrm{Inf}}}$, but still exhibits finite-sample bias (drifting slightly with N).
 - The **Reliability Score** ($S_{\text{Rel}}$) effectively removes this drift, providing an approximately N-invariant measure of misspecification severity.
 - This makes $S_{\mathrm{Rel}}$ suitable for building a universal lookup table that maps to coverage loss regardless of sample size.
+
+## 5.3 Classical Coverage Degradation
+
+We visualize how classical CI coverage degrades with increasing heteroskedasticity. This motivates using the Reliability Score to map to coverage loss.
+
+```{r coverage-degradation, fig.width=10, fig.height=5}
+# Aggregate coverage by N and hetero_strength
+coverage_summary <- hetero_sim_results[, .(
+  mean_coverage = mean(coverage) * 100,
+  se_coverage = sd(coverage) / sqrt(.N) * 100
+), by = .(N, hetero_strength)]
+
+ggplot(coverage_summary, aes(x = hetero_strength, y = mean_coverage, color = as.factor(N))) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  geom_hline(yintercept = 95, linetype = "dashed", color = "gray50") +
+  labs(
+    title = "Classical CI Coverage Degradation Under Heteroskedasticity",
+    subtitle = "Coverage of classical Wald intervals (using SE_classic)",
+    x = "Heteroskedasticity Strength (lambda)",
+    y = "Coverage (%)",
+    color = "Sample Size (N)"
+  ) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(50, 100))
+```
+
+**Key Observation:** Classical coverage degrades systematically with heteroskedasticity. The Reliability Score $S_{\mathrm{Rel}}$ can be mapped to this coverage loss because it is N-invariant—unlike $S_{\mathrm{Inf}}$, which conflates severity with sample size.
 
 ---
 
