@@ -130,21 +130,131 @@ hetero_sim_results <- run_hetero_sim_grid(
 save_rds(hetero_sim_results, "hetero_sim_results.rds")
 ```
 
-## Verify Computed Scores
+## Summary of Simulation Results
 
-We verify that the Reliability Score ($S_{\text{Rel}}$ or `sr_ratio_adj`) has been correctly computed by the simulation engine.
+We summarize the heteroskedastic simulation results, focusing on the behavior of the **Inferential Score** $S_{\mathrm{Inf}}$ across the experimental grid before proceeding to formal analysis.
 
-$$ S_{\text{Rel}} = \frac{\text{SE}_{\text{classic}}}{\text{SE}_{\text{robust}}} - \frac{2}{3\sqrt{N}} $$
+```{r simulation-summary}
+# Basic summary statistics
+cat("Simulation Results Summary\n")
+cat("=" |> rep(60) |> paste(collapse = ""), "\n\n")
 
-```{r verify-scores}
-# Check if columns exist
-if (!all(c("sr_inf", "sr_ratio", "sr_ratio_adj") %in% names(hetero_sim_results))) {
-  stop("Error: Simulation results missing required score columns (sr_inf, sr_ratio, sr_ratio_adj).")
-}
+cat(sprintf("Total simulations:        %d\n", nrow(hetero_sim_results)))
+cat(sprintf("Sample sizes (N):         %s\n", paste(sort(unique(hetero_sim_results$N)), collapse = ", ")))
+cat(sprintf("Hetero strengths (λ):     %d levels\n", length(unique(hetero_sim_results$hetero_strength))))
+cat(sprintf("Effect sizes (β_x):       %s\n", paste(unique(hetero_sim_results$beta_x), collapse = ", ")))
+cat(sprintf("Baseline noise (σ0):      %s\n", paste(unique(hetero_sim_results$sigma0), collapse = ", ")))
 
-cat("Scores successfully computed during simulation.\n")
-print(head(hetero_sim_results[, .(N, hetero_strength, sr_inf, sr_ratio, sr_ratio_adj)], 5))
+# Summary of Inferential Score
+cat("\n\nInferential Score (sr_inf) Summary:\n")
+cat("-" |> rep(40) |> paste(collapse = ""), "\n")
+print(summary(hetero_sim_results$sr_inf))
+
+# Classical coverage summary
+cat("\n\nClassical CI Coverage Summary:\n")
+cat("-" |> rep(40) |> paste(collapse = ""), "\n")
+cat(sprintf("Mean coverage:            %.1f%%\n", mean(hetero_sim_results$coverage) * 100))
+cat(sprintf("Min coverage (by cell):   %.1f%%\n", 
+            hetero_sim_results[, .(cov = mean(coverage)), by = .(N, hetero_strength)][, min(cov)] * 100))
+cat(sprintf("Max coverage (by cell):   %.1f%%\n", 
+            hetero_sim_results[, .(cov = mean(coverage)), by = .(N, hetero_strength)][, max(cov)] * 100))
 ```
+
+### Distribution of the Inferential Score
+
+We examine the distribution of $S_{\mathrm{Inf}}$ across all simulations and by heteroskedasticity level.
+
+```{r sinf-distribution, fig.width=10, fig.height=4}
+# Overall distribution of S_Inf
+p1 <- ggplot(hetero_sim_results, aes(x = sr_inf)) +
+  geom_histogram(bins = 50, fill = "steelblue", color = "white", alpha = 0.7) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  labs(
+    title = "Distribution of Inferential Score (All Simulations)",
+    x = expression(S[Inf]),
+    y = "Count"
+  ) +
+  theme_minimal()
+
+# Distribution by heteroskedasticity strength (subset for clarity)
+hetero_subset <- hetero_sim_results[hetero_strength %in% c(0, 0.5, 1.0, 1.5, 2.0)]
+p2 <- ggplot(hetero_subset, aes(x = sr_inf, fill = as.factor(hetero_strength))) +
+  geom_density(alpha = 0.5) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
+  labs(
+    title = "Inferential Score by Heteroskedasticity Level",
+    x = expression(S[Inf]),
+    y = "Density",
+    fill = "Lambda"
+  ) +
+  theme_minimal()
+
+gridExtra::grid.arrange(p1, p2, ncol = 2)
+```
+
+### Inferential Score vs Sample Size
+
+We examine how the inferential score varies with sample size for different heteroskedasticity levels.
+
+```{r sinf-by-n, fig.width=10, fig.height=5}
+# Aggregate S_Inf by N and hetero_strength
+sinf_summary <- hetero_sim_results[, .(
+  mean_sinf = mean(sr_inf),
+  sd_sinf = sd(sr_inf),
+  q05 = quantile(sr_inf, 0.05),
+  q95 = quantile(sr_inf, 0.95)
+), by = .(N, hetero_strength)]
+
+# Plot mean S_Inf with confidence bands
+ggplot(sinf_summary[hetero_strength %in% c(0, 0.5, 1.0, 1.5, 2.0)], 
+       aes(x = N, y = mean_sinf, color = as.factor(hetero_strength))) +
+  geom_ribbon(aes(ymin = q05, ymax = q95, fill = as.factor(hetero_strength)), 
+              alpha = 0.2, color = NA) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  scale_x_log10() +
+  labs(
+    title = "Inferential Score by Sample Size and Heteroskedasticity",
+    subtitle = "Lines show mean; bands show 5th-95th percentile range",
+    x = "Sample Size (log scale)",
+    y = expression(S[Inf]),
+    color = "Lambda",
+    fill = "Lambda"
+  ) +
+  theme_minimal()
+```
+
+### Classical Coverage Degradation
+
+We visualize how classical CI coverage degrades with increasing heteroskedasticity.
+
+```{r coverage-degradation, fig.width=10, fig.height=5}
+# Aggregate coverage by N and hetero_strength
+coverage_summary <- hetero_sim_results[, .(
+  mean_coverage = mean(coverage) * 100,
+  se_coverage = sd(coverage) / sqrt(.N) * 100
+), by = .(N, hetero_strength)]
+
+ggplot(coverage_summary, aes(x = hetero_strength, y = mean_coverage, color = as.factor(N))) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  geom_hline(yintercept = 95, linetype = "dashed", color = "gray50") +
+  labs(
+    title = "Classical CI Coverage Degradation Under Heteroskedasticity",
+    subtitle = "Coverage of classical Wald intervals (using SE_classic)",
+    x = "Heteroskedasticity Strength (lambda)",
+    y = "Coverage (%)",
+    color = "Sample Size (N)"
+  ) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(50, 100))
+```
+
+**Key Observations:**
+- Under the null ($\lambda = 0$), $S_{\mathrm{Inf}}$ is centered near zero and classical coverage is near 95%.
+- As heteroskedasticity increases, $S_{\mathrm{Inf}}$ shifts positive (robust SE > classic SE) and classical coverage degrades.
+- The relationship between $S_{\mathrm{Inf}}$ and coverage loss motivates using this score as a diagnostic for inference reliability.
 
 # Section 4: Power and N-Dependence of the Inferential Score $S_{\mathrm{Inf}}$
 
