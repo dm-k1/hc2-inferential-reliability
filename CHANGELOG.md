@@ -1,5 +1,29 @@
 # CHANGELOG: Null Calibration Module
 
+## 4 December 2025 – Classical Coverage and Documentation Alignment
+
+**Summary**: Changed coverage computation to use classical CI (se_classic) instead of robust CI, and aligned all documentation with implementation details.
+
+**Coverage Definition Change (R/10_dgp_and_fits.R)**:
+- **`run_hetero_simulation_fast()`**: Coverage is now computed for the CLASSICAL confidence interval (using `se_classic`), not robust CI. This measures how much classical inference "breaks" under heteroskedasticity.
+- **Rationale**: The lookup table maps reliability score to classical coverage gap, answering "given this reliability score, how degraded is my classical inference?"
+
+**Documentation Alignment**:
+- **R/10_dgp_and_fits.R**: Updated `fit_ols_hc()` docstring to accurately describe Cholesky implementation steps.
+- **R/10_dgp_and_fits.R**: Added `check_rank` parameter to `fit_ols_get_hc_ci()` with default TRUE for safe behavior.
+- **R/40_hetero_sims.R**: Clarified that `coverage_gap_pct` measures classical CI coverage degradation.
+- **R/50_invariance_and_lookup.R**: Updated `build_universal_lookup_table()` to document classical coverage semantics.
+- **R/45_inference_breakage_sims.R**: Clarified that this module computes BOTH classical and robust coverage for breakage analysis.
+
+**Deterministic Failure Comments**:
+- Added AGENTS.MD Section 6.4 references to NA/Inf check comments in R/30 and R/40.
+
+**Verification**:
+- ✅ All R scripts pass syntax check
+- ✅ Coverage semantics now consistent: classical CI coverage throughout main pipeline
+
+---
+
 ## 4 December 2025 – AGENTS.MD Hard Violation Fixes
 
 **Summary**: Resolved deterministic failure policy violation and seed policy violation per AGENTS.MD Section 6.4 and implicit seed rules.

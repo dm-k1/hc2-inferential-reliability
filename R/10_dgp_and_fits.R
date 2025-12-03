@@ -47,15 +47,31 @@ simulate_heteroskedastic_dgp <- function(N, beta_x = 0.5, hetero_strength = 1, s
 #' Core OLS and HC Estimator Engine
 #'
 #' Computes OLS coefficients, classic standard errors, and HC0-HC3
-#' robust standard errors using optimized Cholesky decomposition.
-#' Validated in 00_HC_estimators_validation.Rmd.
+#' robust standard errors using optimized matrix algebra.
 #'
-#' @param X Numeric matrix (n x k). Must include intercept.
+#' Implementation details:
+#'   1. Cholesky decomposition: R = chol(X'X)
+#'   2. Inversion: (X'X)^{-1} = chol2inv(R)
+#'   3. Coefficients: beta = (X'X)^{-1} X'y via backsolve/forwardsolve
+#'   4. HC covariances: sandwich form (X'X)^{-1} X' Omega X (X'X)^{-1}
+#'
+#' Validated against lm() + vcovHC() in 00_HC_estimators_validation.Rmd.
+#'
+#' @param X Numeric matrix (n x k). Must include intercept column.
 #' @param y Numeric vector (n).
-#' @param hc_types Character vector of HC types to compute.
-#' @param check_rank Logical. If TRUE, checks for rank deficiency.
+#' @param hc_types Character vector of HC types to compute ("HC0", "HC1", "HC2", "HC3").
+#' @param check_rank Logical. If TRUE (default), checks for rank deficiency and
+#'   stops with an informative error if X is not full rank. If FALSE, proceeds
+#'   without checking (use only when rank is guaranteed by construction).
 #'
-#' @return A list containing beta, vcov/se (classic and robust), residuals, leverage.
+#' @return A list containing:
+#'   - beta: coefficient vector
+#'   - vcov_classic: classic (homoskedastic) covariance matrix
+#'   - se_classic: classic standard errors
+#'   - vcov_robust: named list of HC covariance matrices
+#'   - se_robust: named list of HC standard error vectors
+#'   - residuals: OLS residuals
+#'   - leverage: diagonal of hat matrix (h_ii)
 fit_ols_hc <- function(X, y, hc_types = c("HC0", "HC1", "HC2", "HC3"), check_rank = TRUE) {
   n <- nrow(X)
   k <- ncol(X)
@@ -210,17 +226,21 @@ run_null_simulation_fast <- function(n_obs, n_sims = 1, hc_types = c("HC1", "HC2
 
 #' Optimized Heteroskedastic Simulation using Matrix Algebra
 #'
-#' Replicates the logic from `run_hetero_sim_grid` but optimized for single-pass execution.
-#' Generates data, fits model, and computes coverage and scores efficiently.
+#' Generates heteroskedastic data, fits OLS, and computes coverage and scores.
+#' Coverage is computed for the CLASSICAL confidence interval (using se_classic),
+#' measuring how much classical inference "breaks" under heteroskedasticity.
 #'
 #' @param N Sample size
-#' @param hetero_strength Strength of heteroskedasticity (lambda)
+#' @param hetero_strength Strength of heteroskedasticity (lambda in quadratic variance)
 #' @param hc_type Robust SE type (default "HC2")
 #' @param beta_x True coefficient for x (default 0.5)
 #' @param sigma0 Baseline homoskedastic noise SD (default 1.0)
 #' @param conf_level Confidence level (default 0.95)
 #'
-#' @return A `data.table` with metrics for that simulation run.
+#' @return A data.table with:
+#'   - se_classic, se_robust: standard errors
+#'   - sr_inf, sr_inf_adj, sr_ratio, sr_ratio_adj: canonical metrics
+#'   - coverage: 1 if true beta_x is in classical CI (using se_classic), 0 otherwise
 run_hetero_simulation_fast <- function(N, hetero_strength, hc_type = "HC2", beta_x = 0.5, sigma0 = 1.0, conf_level = 0.95) {
   
   # 1. DGP - Use the canonical function
@@ -230,6 +250,7 @@ run_hetero_simulation_fast <- function(N, hetero_strength, hc_type = "HC2", beta
   y <- d$y
   
   # 2. Fit using core engine
+  # check_rank=FALSE: DGP guarantees full rank (intercept + single N(0,1) regressor)
   fit <- fit_ols_hc(X, y, hc_types = hc_type, check_rank = FALSE)
   idx <- 2L  # slope for x
   
@@ -238,14 +259,16 @@ run_hetero_simulation_fast <- function(N, hetero_strength, hc_type = "HC2", beta
   se_robust  <- fit$se_robust[[hc_type]][idx]
   
   # 3. Compute Metrics
-  # CI and Coverage
+  # Classical CI coverage: measures how much classical inference degrades
+  # under heteroskedasticity. This is the coverage gap we care about.
   df <- N - ncol(X)
   alpha <- 1 - conf_level
   crit_val <- qt(1 - alpha / 2, df = df)
   
-  ci_lower <- beta_hat - crit_val * se_robust
-  ci_upper <- beta_hat + crit_val * se_robust
-  coverage <- (beta_x >= ci_lower) & (beta_x <= ci_upper)
+  # Classical confidence interval (using se_classic, not se_robust)
+  ci_lower <- beta_hat - crit_val * se_classic
+  ci_upper <- beta_hat + crit_val * se_classic
+  coverage <- (beta_x >= ci_lower) & (beta_x <= ci_upper)  # classical CI coverage
   
   # Scores
   sr_inf       <- compute_sr_inf(se_classic, se_robust)
@@ -264,25 +287,30 @@ run_hetero_simulation_fast <- function(N, hetero_strength, hc_type = "HC2", beta
   )
 }
 
-#' Fit OLS model and compute HC confidence intervals (Optimized Matrix Version)
+#' Fit OLS model and compute HC confidence intervals
+#'
+#' Convenience wrapper around fit_ols_hc() for simple regression (y ~ x).
+#' Returns classic and robust SEs plus confidence interval bounds.
 #'
 #' @param data data.frame with columns 'x' and 'y'
 #' @param hc_type Robust SE type (default "HC2")
 #' @param conf_level Confidence level (default 0.95)
+#' @param check_rank Logical. If TRUE (default), checks for rank deficiency.
+#'   Set to FALSE only when rank is guaranteed (e.g., in controlled simulations).
 #'
 #' @return list with:
-#'   - se_classic: Classic standard error for x
-#'   - se_robust: Robust standard error for x
-#'   - ci_lower: Lower bound of robust CI
-#'   - ci_upper: Upper bound of robust CI
-#'   - beta_x: Estimated coefficient
-fit_ols_get_hc_ci <- function(data, hc_type = "HC2", conf_level = 0.95) {
-  # 1. Setup matrices (Assumes simple regression y ~ x)
+#'   - se_classic: Classic standard error for slope
+#'   - se_robust: Robust standard error for slope
+#'   - ci_lower: Lower bound of robust CI for slope
+#'   - ci_upper: Upper bound of robust CI for slope
+#'   - beta_x: Estimated slope coefficient
+fit_ols_get_hc_ci <- function(data, hc_type = "HC2", conf_level = 0.95, check_rank = TRUE) {
+  # 1. Setup matrices (simple regression y ~ x with intercept)
   y <- data$y
   X <- cbind(1, data$x) 
   
   # 2. Fit using core engine
-  fit <- fit_ols_hc(X, y, hc_types = hc_type, check_rank = FALSE)
+  fit <- fit_ols_hc(X, y, hc_types = hc_type, check_rank = check_rank)
   
   idx <- 2L
   beta_x     <- fit$beta[idx]

@@ -31,8 +31,10 @@ simulate_heteroskedastic_dgp_exp <- function(N,
 
 #' Run inference breakage simulation
 #'
-#' Evaluates coverage degradation under exponential heteroskedasticity
-#' across a grid of sample sizes and heteroskedasticity strengths.
+#' Evaluates how inference quality degrades under exponential heteroskedasticity.
+#' Unlike run_hetero_simulation_fast (which computes only robust CI coverage),
+#' this function computes BOTH classical and robust CI coverage to directly
+#' study the "breakage" of classical inference.
 #'
 #' @param N_grid Vector of sample sizes
 #' @param hetero_strength_grid Vector of exponential heteroskedasticity strengths
@@ -45,8 +47,9 @@ simulate_heteroskedastic_dgp_exp <- function(N,
 #' @return data.table with columns:
 #'   - N, hetero_strength, sim_id
 #'   - se_classic, se_robust
-#'   - sr_inf, sr_inf_adj, sr_ratio, sr_ratio_adj
-#'   - coverage_classic, coverage_robust
+#'   - sr_inf, sr_inf_adj, sr_ratio, sr_ratio_adj (canonical metrics)
+#'   - coverage_classic: 1 if true beta in classical CI (using se_classic)
+#'   - coverage_robust: 1 if true beta in robust CI (using se_robust)
 run_inference_breakage_sim <- function(N_grid,
                                         hetero_strength_grid,
                                         n_sims = 1000,
@@ -132,12 +135,17 @@ run_inference_breakage_sim <- function(N_grid,
 
 #' Aggregate inference breakage results
 #'
-#' Computes summary statistics per (N, hetero_strength) cell.
+#' Computes summary statistics per (N, hetero_strength) cell, including
+#' separate coverage gaps for classical and robust CIs.
 #'
 #' @param results data.table from run_inference_breakage_sim
 #'
-#' @return data.table with aggregated statistics, including coverage gaps expressed
-#'   in percentage points (`coverage_gap_classic_pct`, `coverage_gap_robust_pct`).
+#' @return data.table with aggregated statistics:
+#'   - coverage_classic, coverage_robust: mean coverage rates
+#'   - coverage_gap_classic_pct: 95 - 100 * mean(coverage_classic)
+#'     Measures how much classical inference has "broken" under heteroskedasticity.
+#'   - coverage_gap_robust_pct: 95 - 100 * mean(coverage_robust)
+#'     Measures deviation of robust CI from nominal (should be small if HC works).
 aggregate_breakage_results <- function(results) {
 
   aggregated <- results[, .(
@@ -157,7 +165,10 @@ aggregate_breakage_results <- function(results) {
   aggregated
 }
 
-#' Plot inference breakage: coverage vs heteroskedasticity
+#' Plot inference breakage: classical coverage vs heteroskedasticity strength
+#'
+#' Visualizes how classical CI coverage degrades as heteroskedasticity increases.
+#' This directly shows the "breakage" of classical inference.
 #'
 #' @param aggregated_results data.table from aggregate_breakage_results
 #' @param title Plot title

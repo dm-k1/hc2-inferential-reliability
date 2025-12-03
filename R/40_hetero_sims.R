@@ -99,7 +99,8 @@ run_hetero_sim_grid <- function(N_grid,
         sigma0          = sigma0
       )]
       
-      # CHECK: Deterministic failure on NA/Inf within the worker
+      # DETERMINISTIC FAILURE CHECKS (per AGENTS.MD Section 6.4)
+      # Any NA or Inf indicates a bug or numerical instability. Fail loudly.
       if (anyNA(cell_dt)) {
         stop(sprintf("Deterministic Failure: NA values detected in cell N=%d, lambda=%.2f, beta=%.2f, sigma0=%.2f", 
                      N, lambda, beta_x, sigma0))
@@ -128,20 +129,25 @@ run_hetero_sim_grid <- function(N_grid,
 
 #' Aggregate heteroskedastic simulation results
 #'
-#' For each (N, hetero_strength, beta_x, sigma0) combination, compute:
-#'  - Mean and SD of se_classic, se_robust
-#'  - Mean and SD of sr_inf, sr_ratio, sr_ratio_adj
-#'  - Optionally: mean and SD of sr_inf_adj (if column present)
-#'  - Mean coverage (classic and robust)
-#'  - Coverage gap (95 - mean coverage)
-#'  - Sample size (n_reps)
+#' For each (N, hetero_strength, beta_x, sigma0) cell, computes:
+#'   - Mean and SD of se_classic, se_robust
+#'   - Mean and SD of sr_inf, sr_ratio, sr_ratio_adj
+#'   - Mean coverage (for classical CI using se_classic)
+#'   - coverage_gap_pct = 95 - 100 * mean(coverage)
+#'
+#' Note: The "coverage" column from run_hetero_simulation_fast measures
+#' whether the CLASSICAL confidence interval (using se_classic) covers the true
+#' parameter. The coverage_gap_pct therefore measures how much classical
+#' inference has "broken" under heteroskedasticity.
 #'
 #' @param hetero_sim_results data.table from run_hetero_sim_grid
 #'
-#' @return data.table with aggregated statistics
+#' @return data.table with aggregated statistics per cell
 aggregate_hetero_sims <- function(hetero_sim_results) {
   
   # Core metrics that are always expected
+  # Note: 'coverage' is for classical CI (se_classic), so coverage_gap_pct
+  # measures how much classical inference degrades under heteroskedasticity
   aggregated <- hetero_sim_results[, .(
     n_sims = .N,
     mean_se_classic = mean(se_classic, na.rm = TRUE),
@@ -155,7 +161,7 @@ aggregate_hetero_sims <- function(hetero_sim_results) {
     mean_sr_ratio_adj = mean(sr_ratio_adj, na.rm = TRUE),
     sd_sr_ratio_adj = sd(sr_ratio_adj, na.rm = TRUE),
     mean_coverage = mean(coverage, na.rm = TRUE),
-    coverage_gap_pct = 95 - mean(coverage, na.rm = TRUE) * 100
+    coverage_gap_pct = 95 - mean(coverage, na.rm = TRUE) * 100  # classical CI coverage gap
   ), by = .(N, hetero_strength, beta_x, sigma0)]
   
   # Optional metrics
@@ -172,16 +178,21 @@ aggregate_hetero_sims <- function(hetero_sim_results) {
   aggregated
 }
 
-#' Build wide format table: Coverage_Gap_Pct rows, N columns, Adjusted Score values
+#' Build wide format table: Coverage_Gap_Pct rows, N columns, Reliability Score values
 #'
-#' This is the main table for lookup: for each coverage gap, show the
-#' corresponding adjusted score at each N.
+#' Creates the main lookup table: for each classical coverage gap level, shows the
+#' corresponding reliability score (sr_ratio_adj) at each sample size N.
+#'
+#' Note: coverage_gap_pct is derived from classical CI coverage (using se_classic),
+#' as computed by run_hetero_simulation_fast and aggregated by aggregate_hetero_sims.
+#' This measures how much classical inference has degraded under heteroskedasticity.
 #'
 #' @param aggregated_results data.table from aggregate_hetero_sims
 #'
 #' @return list with:
-#'   - wide_table: data.table in wide format (Coverage_Gap as rows, N as columns)
-#'   - coverage_gaps: vector of unique coverage gaps
+#'   - wide_table: data.table (Coverage_Gap_Pct as rows, N as columns, values are sr_ratio_adj)
+#'   - coverage_gaps: vector of unique classical coverage gap levels
+#'   - N_values: vector of sample sizes
 build_coverage_adjusted_table <- function(aggregated_results) {
   
   # Round coverage_gap_pct to nearest integer for cleaner display

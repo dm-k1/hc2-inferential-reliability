@@ -70,13 +70,13 @@ run_fast_null_calibration <- function(N_grid,
     N_results <- rbindlist(batch_results)
     N_results[, N := N]
     
-    # CHECK: Deterministic failure on NA/Inf
-    # We strictly enforce that no results can be NA or Inf
+    # DETERMINISTIC FAILURE CHECKS (per AGENTS.MD Section 6.4)
+    # Any NA or Inf in core simulation results indicates a bug, numerical
+    # instability, or design flaw. We fail loudly rather than silently skip.
     if (anyNA(N_results)) {
       stop(sprintf("Deterministic Failure: NA values detected in simulation results for N=%d", N))
     }
     
-    # Check for Inf values in numeric columns
     numeric_cols <- names(N_results)[sapply(N_results, is.numeric)]
     for (col in numeric_cols) {
       if (any(is.infinite(N_results[[col]]))) {

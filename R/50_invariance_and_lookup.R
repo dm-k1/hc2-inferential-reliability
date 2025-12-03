@@ -155,13 +155,20 @@ fit_global_mixed_model <- function(aggregated_results) {
 
 #' Build universal lookup table
 #'
-#' Average adjusted score across all N values for each coverage gap,
-#' to get a single "universal" score per coverage gap level.
+#' Averages the reliability score (sr_ratio_adj) across all N values for each
+#' classical coverage gap level, producing a single "universal" mapping from
+#' coverage gap to reliability score.
+#'
+#' Note: coverage_gap_pct is derived from classical CI coverage (using se_classic).
+#' This measures how much classical inference has degraded under heteroskedasticity.
 #'
 #' @param aggregated_results data.table from aggregate_hetero_sims
 #'
 #' @return data.table with:
-#'   - coverage_gap_pct, true_coverage, universal_sr_ratio_adj, n_cells
+#'   - coverage_gap_pct: classical CI coverage gap (95 - actual classical coverage)
+#'   - true_coverage: actual classical CI coverage (95 - gap)
+#'   - universal_sr_ratio_adj: averaged reliability score
+#'   - n_cells: number of cells averaged
 build_universal_lookup_table <- function(aggregated_results) {
   
   # Group by coverage gap and average over N
