@@ -363,9 +363,10 @@ Having established statistically significant N-dependence, we now visualize how 
 
 ```{r n-dependence-sinf-plot}
 # Subset to representative parameters for clarity
+# Include more lambda values for comprehensive visualization
 subset_params <- hetero_sim_results[
   beta_x == 0.5 & sigma0 == 1.0 & 
-  hetero_strength %in% c(0, 0.5, 1.0, 1.5, 2.0)
+  hetero_strength %in% c(0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
 ]
 
 # Aggregate mean T_SInf
@@ -379,12 +380,13 @@ ggplot(sinf_n_summary, aes(x = N, y = mean_T_sinf, color = as.factor(hetero_stre
   geom_line(size = 1) +
   geom_point(size = 2) +
   scale_x_log10() +
+  scale_color_viridis_d(option = "plasma", end = 0.9) +
   labs(
     title = "N-Dependence of Test Statistic T_SInf",
     subtitle = "Mean T_SInf increases with N for fixed misspecification level",
     x = "Sample Size (log scale)",
     y = "Mean T_SInf",
-    color = "Lambda"
+    color = "λ"
   ) +
   theme_minimal() +
   theme(legend.position = "right")
