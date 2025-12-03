@@ -387,11 +387,11 @@ run_sensitivity_analysis <- function(N_grid, n_sims = 10000, hc_type = "HC2", ve
     if (verbose) cat(sprintf("  Processing N = %d...\n", N))
     
     # Simple regression (p = 2)
-    simple_res <- run_null_simulation_fast(N = N, n_sims = n_sims, hc_types = hc_type)
+    simple_res <- run_null_simulation_fast(N, n_sims = n_sims, hc_types = hc_type)
     simple_res[, `:=`(N = N, model = "Simple (p=2)", inv_sqrt_N = 1/sqrt(N))]
     
     # Multiple regression (p = 3)
-    multiple_res <- run_null_simulation_fast_multiple(N = N, n_sims = n_sims, hc_type = hc_type)
+    multiple_res <- run_null_simulation_fast_multiple(N, n_sims = n_sims, hc_type = hc_type)
     multiple_res[, `:=`(N = N, model = "Multiple (p=3)", inv_sqrt_N = 1/sqrt(N))]
     
     results_list[[length(results_list) + 1]] <- simple_res[, .(N, model, sr_ratio, inv_sqrt_N)]
