@@ -40,6 +40,8 @@ print_kable_table <- function(dt,
 #' @param dt       data.table or data.frame
 #' @param filename Filename (will be saved in results/ directory)
 #' @param verbose  Print confirmation message
+#'
+#' @return Invisible NULL. Called for side effect of writing file.
 save_table_csv <- function(dt, filename, verbose = TRUE) {
   
   output_path <- file.path(RESULTS_PATH, filename)
@@ -60,6 +62,8 @@ save_table_csv <- function(dt, filename, verbose = TRUE) {
 #' @param obj       R object to save
 #' @param filename  Filename (will be saved in results/ directory)
 #' @param verbose   Print confirmation message
+#'
+#' @return Invisible NULL. Called for side effect of writing file.
 save_rds <- function(obj, filename, verbose = TRUE) {
   
   output_path <- file.path(RESULTS_PATH, filename)
@@ -216,6 +220,8 @@ plot_null_quantiles <- function(quantile_summary,
 #' @param width     Width in inches (default 10)
 #' @param height    Height in inches (default 6)
 #' @param verbose   Print confirmation message
+#'
+#' @return Invisible NULL. Called for side effect of writing file.
 save_plot_png <- function(plot, filename, width = 10, height = 6, verbose = TRUE) {
   
   output_path <- file.path(RESULTS_PATH, filename)
@@ -240,6 +246,8 @@ save_plot_png <- function(plot, filename, width = 10, height = 6, verbose = TRUE
 #' @param hetero_results    data.table from run_hetero_sim_grid
 #' @param aggregated        data.table from aggregate_hetero_sims
 #' @param invariance_results List from run_full_invariance_analysis
+#'
+#' @return Invisible NULL. Called for side effect of printing to console.
 print_full_summary <- function(null_results,
                                hetero_results,
                                aggregated,

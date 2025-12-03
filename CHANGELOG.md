@@ -1,5 +1,20 @@
 # CHANGELOG: Null Calibration Module
 
+## 3 December 2025 – Remove Backward Compatibility (AGENTS.MD Section 10 Compliance)
+
+**Summary**: Removed backward compatibility layer from function calls per AGENTS.MD Section 10 ("No backward compatibility layer"). Updated function calls to use positional arguments instead of named arguments when the parameter name matches the variable.
+
+**Changes**:
+- **R/10_dgp_and_fits.R**:
+  - `run_sensitivity_analysis()`: Changed `run_null_simulation_fast(N = N, ...)` to `run_null_simulation_fast(N, ...)`
+  - `run_sensitivity_analysis()`: Changed `run_null_simulation_fast_multiple(N = N, ...)` to `run_null_simulation_fast_multiple(N, ...)`
+
+**Rationale**: AGENTS.MD Section 10 states "The codebase must not accumulate deprecated aliases, wrapper functions, or 'legacy' modes." Using `N = N` syntax in function calls was maintaining an unnecessary form of backward compatibility after the parameter name was standardized from `n_obs` to `N`.
+
+**Breaking Changes**: None. All call sites already updated in previous commit.
+
+---
+
 ## 3 December 2025 – Pipeline Compliance and Empirical c Correction
 
 **Summary**: Major refactoring to enforce AGENTS.MD pipeline compliance. Removed hardcoded theoretical constant 2/(3√N) from metrics, replaced with empirically derived c ≈ 0.25. Centralized all simulation and plotting functions; eliminated ad-hoc inline code from notebooks.

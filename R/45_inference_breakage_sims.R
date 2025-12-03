@@ -47,9 +47,13 @@ simulate_heteroskedastic_dgp_exp <- function(N,
 #' @return data.table with columns:
 #'   - N, hetero_strength, sim_id
 #'   - se_classic, se_robust
-#'   - sr_inf, sr_inf_adj, sr_ratio, sr_ratio_adj (canonical metrics)
+#'   - sr_inf, sr_inf_adj, sr_ratio (canonical metrics)
 #'   - coverage_classic: 1 if true beta in classical CI (using se_classic)
 #'   - coverage_robust: 1 if true beta in robust CI (using se_robust)
+#'
+#' Note: sr_ratio_adj is NOT returned because it requires the empirically
+#' estimated correction factor c_correction from Notebook 02 Section 5.3.
+#' Use compute_sr_ratio_adj() post-hoc after estimating c_correction.
 run_inference_breakage_sim <- function(N_grid,
                                         hetero_strength_grid,
                                         n_sims = 1000,
@@ -91,10 +95,13 @@ run_inference_breakage_sim <- function(N_grid,
         se_robust <- sqrt(diag(sandwich::vcovHC(fit, type = hc_type)))["x"]
         
         # Compute canonical metrics
+        # Note: sr_ratio_adj is NOT computed here because it requires the
+        # empirically estimated correction factor c_correction, which is
+        # derived in Notebook 02 Section 5.3. Use compute_sr_ratio_adj()
+        # post-hoc after estimating c_correction.
         sr_inf <- compute_sr_inf(se_classic, se_robust)
         sr_inf_adj <- compute_sr_inf_adj(se_classic, se_robust, N)
         sr_ratio <- compute_sr_ratio(se_classic, se_robust)
-        sr_ratio_adj <- compute_sr_ratio_adj(se_classic, se_robust, N)
         
         # Compute coverage
         beta_hat <- coef(fit)["x"]
@@ -117,7 +124,6 @@ run_inference_breakage_sim <- function(N_grid,
           sr_inf = sr_inf,
           sr_inf_adj = sr_inf_adj,
           sr_ratio = sr_ratio,
-          sr_ratio_adj = sr_ratio_adj,
           coverage_classic = coverage_classic,
           coverage_robust = coverage_robust
         )
@@ -153,7 +159,6 @@ aggregate_breakage_results <- function(results) {
     mean_sr_inf = mean(sr_inf),
     mean_sr_inf_adj = mean(sr_inf_adj),
     mean_sr_ratio = mean(sr_ratio),
-    mean_sr_ratio_adj = mean(sr_ratio_adj),
     coverage_classic = mean(coverage_classic),
     coverage_robust = mean(coverage_robust),
     coverage_gap_classic_pct = 95 - mean(coverage_classic) * 100,
