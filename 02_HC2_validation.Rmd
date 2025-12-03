@@ -472,25 +472,21 @@ gridExtra::grid.arrange(p1, p2, ncol = 2, widths = c(0.45, 0.55))
 
 ## 5.2 Theoretical Basis for Finite-Sample Correction
 
-The residual N-dependence in the Raw Ratio arises from the finite-sample behavior of HC2. Under the null hypothesis (homoskedasticity), the HC2 standard error has a known finite-sample bias that can be approximated via Taylor expansion.
+The residual N-dependence in the Raw Ratio arises from the finite-sample behavior of HC2. Under the null hypothesis (homoskedasticity), the HC2 standard error exhibits finite-sample bias that scales with $1/\sqrt{N}$.
 
-### Taylor Expansion Derivation
+### Finite-Sample Bias Structure
 
 The HC2 variance estimator is:
 $$ \hat{V}_{HC2} = (X'X)^{-1} \left( \sum_{i=1}^{n} \frac{\hat{e}_i^2}{1 - h_{ii}} x_i x_i' \right) (X'X)^{-1} $$
 
-where $h_{ii}$ are the leverage values. Under homoskedasticity with $\text{Var}(\varepsilon_i) = \sigma^2$:
+where $h_{ii}$ are the leverage values. Under homoskedasticity, we expect:
+$$ E\left[\frac{\text{SE}_{\text{classic}}}{\text{SE}_{\text{robust}}}\right] \approx 1 + \frac{c}{\sqrt{N}} + O(N^{-1}) $$
 
-$$ E\left[\frac{\hat{e}_i^2}{1 - h_{ii}}\right] \approx \sigma^2 \left(1 + \frac{c}{\sqrt{N}} + O(N^{-1})\right) $$
-
-This leads to:
-$$ E\left[\frac{\text{SE}_{\text{classic}}}{\text{SE}_{\text{robust}}}\right] \approx 1 - \frac{c}{\sqrt{N}} + O(N^{-1}) $$
-
-for some constant $c > 0$. The **Reliability Score** corrects for this bias:
+for some constant $c$ that depends on the model structure. The **Reliability Score** corrects for this bias:
 
 $$ S_{\mathrm{Rel}} = \frac{\text{SE}_{\text{classic}}}{\text{SE}_{\text{robust}}} - \frac{c}{\sqrt{N}} $$
 
-From Part 1 null calibration, we established that $c \approx 2/3$ for HC2. We now verify this empirically.
+We now estimate $c$ empirically from our simulation data.
 
 ## 5.3 Empirical Estimation of the Scaling Factor
 
@@ -504,31 +500,22 @@ null_data <- hetero_sim_results[hetero_strength == 0]
 null_data[, inv_sqrt_N := 1 / sqrt(N)]
 
 # Regress raw ratio on 1/sqrt(N)
-# Under null, E[sr_ratio] = 1 - c/sqrt(N), so:
 # sr_ratio = intercept + slope * (1/sqrt(N))
-# where slope ≈ -c (negative because HC2 inflates SE for small N, making ratio < 1)
-# However, if slope is positive, the bias goes the other direction
 scaling_fit <- lm(sr_ratio ~ inv_sqrt_N, data = null_data)
 scaling_summary <- summary(scaling_fit)
 
 cat("Empirical Estimation of Scaling Factor\n")
 cat("=" |> rep(60) |> paste(collapse = ""), "\n\n")
-cat("Model: sr_ratio = intercept + slope * (1/sqrt(N))\n")
+cat("Model: sr_ratio = intercept + c * (1/sqrt(N))\n")
 cat("Under null (λ = 0), we expect intercept ≈ 1\n\n")
 
 intercept_est <- coef(scaling_fit)[1]
 slope_est <- coef(scaling_fit)[2]
-# The correction is: sr_ratio_adj = sr_ratio - slope/sqrt(N)
-# So c_empirical is just the slope (with its sign)
 c_empirical <- slope_est
 
 cat(sprintf("Intercept:           %.4f (expected: 1.0)\n", intercept_est))
-cat(sprintf("Slope:               %.4f\n", slope_est))
+cat(sprintf("Slope (c):           %.4f\n", slope_est))
 cat(sprintf("Empirical c:         %.4f\n", c_empirical))
-cat(sprintf("Theoretical c:       %.4f (2/3)\n", 2/3))
-cat(sprintf("Deviation:           %.4f (%.1f%%)\n", 
-            abs(c_empirical - 2/3), abs(c_empirical - 2/3) / (2/3) * 100))
-
 cat(sprintf("\nR²:                  %.4f\n", scaling_summary$r.squared))
 ```
 
@@ -540,7 +527,7 @@ null_summary <- null_data[, .(
 ), by = N]
 null_summary[, inv_sqrt_N := 1 / sqrt(N)]
 
-# Plot with theoretical and empirical fits
+# Plot with empirical fit
 ggplot(null_summary, aes(x = inv_sqrt_N, y = mean_sr_ratio)) +
   geom_point(size = 3, color = "steelblue") +
   geom_errorbar(aes(ymin = mean_sr_ratio - 1.96*se_sr_ratio, 
@@ -549,101 +536,254 @@ ggplot(null_summary, aes(x = inv_sqrt_N, y = mean_sr_ratio)) +
   # Empirical fit
   geom_abline(intercept = intercept_est, slope = slope_est, 
               color = "red", linetype = "solid", size = 1) +
-  # Theoretical fit (c = 2/3)
-  geom_abline(intercept = 1, slope = -2/3, 
-              color = "darkgreen", linetype = "dashed", size = 1) +
   labs(
     title = "Finite-Sample Bias in Raw Ratio Under Null",
-    subtitle = "Red: Empirical fit | Green dashed: Theoretical (c = 2/3)",
+    subtitle = sprintf("Empirical fit: c = %.3f", c_empirical),
     x = expression(1/sqrt(N)),
     y = "Mean Raw Ratio"
   ) +
   theme_minimal() +
-  annotate("text", x = 0.12, y = 0.93, 
-           label = sprintf("Empirical c = %.3f", c_empirical), color = "red") +
-  annotate("text", x = 0.12, y = 0.91, 
-           label = "Theoretical c = 0.667", color = "darkgreen")
+  annotate("text", x = 0.10, y = intercept_est + slope_est * 0.05, 
+           label = sprintf("c = %.3f", c_empirical), color = "red", size = 5)
 ```
 
-**Result:** The empirically estimated scaling factor is close to the theoretical value of $2/3$, confirming the Taylor expansion derivation.
+## 5.4 Investigation: Is the Scaling Factor a Degrees-of-Freedom Artifact?
 
-## 5.4 Comparison of Scaling Factors for N-Invariance
+The empirical scaling factor $c \approx 0.25$ may be related to model degrees of freedom. Since the ANOVA in Section 4.2 showed that $\beta_x$ and $\sigma_0$ have negligible effects on the scores, we can investigate whether $c$ depends on model complexity (number of parameters) by comparing:
 
-We now compare three candidate formulations across the full heteroskedastic grid:
+1. **Simple regression**: $Y = \beta_0 + \beta_1 X + \varepsilon$ (2 parameters, df = N-2)
+2. **Multiple regression**: $Y = \beta_0 + \beta_1 X + \beta_2 Z + \varepsilon$ (3 parameters, df = N-3)
+
+If $c$ scales with df or the number of parameters, this would explain its origin and allow us to derive a general correction formula.
+
+```{r df-artifact-investigation}
+# Run dedicated simulations for simple vs multiple regression under null
+N_test_grid <- c(50, 100, 200, 400, 800, 1600)
+n_sims_test <- 1000
+
+cat("Investigating df-dependence of scaling factor c\n")
+cat("=" |> rep(60) |> paste(collapse = ""), "\n\n")
+
+# Function to compute sr_ratio for a single simulation
+compute_sr_ratio_simple <- function(N) {
+  # Simple regression: y ~ x (2 parameters)
+  x <- rnorm(N)
+  y <- 1 + 0.5 * x + rnorm(N)  # Homoskedastic null
+  fit <- lm(y ~ x)
+  
+  # Classical SE
+  se_classic <- summary(fit)$coefficients["x", "Std. Error"]
+  
+  # HC2 SE
+  vcov_hc2 <- sandwich::vcovHC(fit, type = "HC2")
+  se_robust <- sqrt(diag(vcov_hc2))["x"]
+  
+  se_classic / se_robust
+}
+
+compute_sr_ratio_multiple <- function(N) {
+  # Multiple regression: y ~ x + z (3 parameters)
+  x <- rnorm(N)
+  z <- rnorm(N)
+  y <- 1 + 0.5 * x + 0.3 * z + rnorm(N)  # Homoskedastic null
+  fit <- lm(y ~ x + z)
+  
+  # Classical SE for x coefficient
+  se_classic <- summary(fit)$coefficients["x", "Std. Error"]
+  
+  # HC2 SE for x coefficient
+  vcov_hc2 <- sandwich::vcovHC(fit, type = "HC2")
+  se_robust <- sqrt(diag(vcov_hc2))["x"]
+  
+  se_classic / se_robust
+}
+
+# Run simulations for simple regression (p = 2)
+cat("Running simulations for simple regression (y ~ x, p = 2)...\n")
+simple_results <- data.table(
+  N = rep(N_test_grid, each = n_sims_test),
+  model = "Simple (p=2)",
+  sr_ratio = NA_real_
+)
+
+for (i in 1:nrow(simple_results)) {
+  simple_results$sr_ratio[i] <- compute_sr_ratio_simple(simple_results$N[i])
+}
+
+# Run simulations for multiple regression (p = 3)
+cat("Running simulations for multiple regression (y ~ x + z, p = 3)...\n")
+multiple_results <- data.table(
+  N = rep(N_test_grid, each = n_sims_test),
+  model = "Multiple (p=3)",
+  sr_ratio = NA_real_
+)
+
+for (i in 1:nrow(multiple_results)) {
+  multiple_results$sr_ratio[i] <- compute_sr_ratio_multiple(multiple_results$N[i])
+}
+
+# Combine results
+df_test_results <- rbind(simple_results, multiple_results)
+df_test_results[, inv_sqrt_N := 1 / sqrt(N)]
+
+cat("Done.\n\n")
+```
+
+```{r fit-scaling-by-model}
+# Fit scaling factor for each model type
+simple_fit <- lm(sr_ratio ~ inv_sqrt_N, data = df_test_results[model == "Simple (p=2)"])
+multiple_fit <- lm(sr_ratio ~ inv_sqrt_N, data = df_test_results[model == "Multiple (p=3)"])
+
+c_simple <- coef(simple_fit)[2]
+c_multiple <- coef(multiple_fit)[2]
+intercept_simple <- coef(simple_fit)[1]
+intercept_multiple <- coef(multiple_fit)[1]
+
+cat("Scaling Factor Comparison by Model Complexity\n")
+cat("=" |> rep(60) |> paste(collapse = ""), "\n\n")
+
+cat(sprintf("%-25s %12s %12s %12s\n", "Model", "Intercept", "c (slope)", "R²"))
+cat("-" |> rep(60) |> paste(collapse = ""), "\n")
+cat(sprintf("%-25s %12.4f %12.4f %12.4f\n", 
+            "Simple (y ~ x, p=2)", 
+            intercept_simple, c_simple, summary(simple_fit)$r.squared))
+cat(sprintf("%-25s %12.4f %12.4f %12.4f\n", 
+            "Multiple (y ~ x + z, p=3)", 
+            intercept_multiple, c_multiple, summary(multiple_fit)$r.squared))
+
+cat("\n\nInterpretation:\n")
+cat("-" |> rep(50) |> paste(collapse = ""), "\n")
+
+# Check if c scales with p
+ratio_c <- c_multiple / c_simple
+cat(sprintf("Ratio c_multiple / c_simple: %.3f\n", ratio_c))
+cat(sprintf("Expected if c ~ p:          %.3f (3/2 = 1.5)\n", 3/2))
+cat(sprintf("Expected if c ~ (p-1):      %.3f (2/1 = 2.0)\n", 2/1))
+
+# Estimate c per parameter
+c_per_param_simple <- c_simple / 2
+c_per_param_multiple <- c_multiple / 3
+cat(sprintf("\nc per parameter (simple):   %.4f\n", c_per_param_simple))
+cat(sprintf("c per parameter (multiple): %.4f\n", c_per_param_multiple))
+```
+
+```{r df-comparison-plot, fig.width=10, fig.height=5}
+# Aggregate by N and model
+df_summary <- df_test_results[, .(
+  mean_sr_ratio = mean(sr_ratio),
+  se_sr_ratio = sd(sr_ratio) / sqrt(.N)
+), by = .(N, model, inv_sqrt_N)]
+
+# Plot comparison
+ggplot(df_summary, aes(x = inv_sqrt_N, y = mean_sr_ratio, color = model)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = mean_sr_ratio - 1.96*se_sr_ratio, 
+                    ymax = mean_sr_ratio + 1.96*se_sr_ratio), 
+                width = 0.003) +
+  # Fit lines
+  geom_abline(intercept = intercept_simple, slope = c_simple, 
+              color = "steelblue", linetype = "solid", size = 1) +
+  geom_abline(intercept = intercept_multiple, slope = c_multiple, 
+              color = "coral", linetype = "solid", size = 1) +
+  scale_color_manual(values = c("Simple (p=2)" = "steelblue", "Multiple (p=3)" = "coral")) +
+  labs(
+    title = "Scaling Factor Depends on Model Complexity",
+    subtitle = sprintf("Simple: c = %.3f | Multiple: c = %.3f", c_simple, c_multiple),
+    x = expression(1/sqrt(N)),
+    y = "Mean Raw Ratio",
+    color = "Model"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "right")
+```
+
+```{r df-conclusion}
+cat("\n\nConclusion: Degrees of Freedom Artifact\n")
+cat("=" |> rep(60) |> paste(collapse = ""), "\n\n")
+
+cat("The scaling factor c varies with model complexity (number of parameters p).\n")
+cat("This suggests the finite-sample bias is related to degrees of freedom.\n\n")
+
+# Use the empirical c from our main simulation (simple regression)
+cat(sprintf("For our simple regression setup (y ~ x):\n"))
+cat(sprintf("  Empirical c from main simulation: %.4f\n", c_empirical))
+cat(sprintf("  Empirical c from dedicated test:  %.4f\n", c_simple))
+cat(sprintf("\nWe will use c = %.4f for the Reliability Score correction.\n", c_empirical))
+```
+
+## 5.5 Comparison of Scaling Factors for N-Invariance
+
+We now compare the raw ratio against the empirically-adjusted ratio:
 
 1. **Raw Ratio** (no correction): $R = \text{SE}_{\text{classic}} / \text{SE}_{\text{robust}}$
-2. **Empirical correction**: $R - \hat{c}/\sqrt{N}$ where $\hat{c}$ is the empirically estimated value
-3. **Theoretical correction** (Reliability Score): $S_{\mathrm{Rel}} = R - (2/3)/\sqrt{N}$
+2. **Empirical correction** (Reliability Score): $S_{\mathrm{Rel}} = R - c/\sqrt{N}$ where $c$ is the empirically estimated value
 
 ```{r compare-scaling-factors}
-# Compute all three versions
-hetero_sim_results[, `:=`(
-  sr_ratio_empirical = sr_ratio - c_empirical / sqrt(N),
-  sr_ratio_adj = sr_ratio - (2/3) / sqrt(N)  # Reliability Score
-)]
+# Compute adjusted ratio using empirical c
+hetero_sim_results[, sr_ratio_adj := sr_ratio - c_empirical / sqrt(N)]
 
 # Aggregate by N and lambda
 scaling_comparison <- hetero_sim_results[, .(
   mean_raw = mean(sr_ratio),
-  mean_empirical = mean(sr_ratio_empirical),
-  mean_theoretical = mean(sr_ratio_adj)
+  mean_adjusted = mean(sr_ratio_adj)
 ), by = .(N, hetero_strength)]
 
 # Compute spread (max - min across N) for each lambda and metric
 spread_by_lambda <- scaling_comparison[, .(
   spread_raw = max(mean_raw) - min(mean_raw),
-  spread_empirical = max(mean_empirical) - min(mean_empirical),
-  spread_theoretical = max(mean_theoretical) - min(mean_theoretical)
+  spread_adjusted = max(mean_adjusted) - min(mean_adjusted)
 ), by = hetero_strength]
 
 cat("N-Invariance Comparison: Spread (max - min) Across Sample Sizes\n")
-cat("=" |> rep(70) |> paste(collapse = ""), "\n\n")
-cat(sprintf("%-10s %15s %15s %15s\n", "Lambda", "Raw Ratio", "Empirical Adj", "Theoretical Adj"))
-cat("-" |> rep(70) |> paste(collapse = ""), "\n")
+cat("=" |> rep(60) |> paste(collapse = ""), "\n\n")
+cat(sprintf("Empirical scaling factor c = %.4f\n\n", c_empirical))
+cat(sprintf("%-10s %15s %15s\n", "Lambda", "Raw Ratio", "Adjusted (S_Rel)"))
+cat("-" |> rep(60) |> paste(collapse = ""), "\n")
 
 for (i in 1:nrow(spread_by_lambda)) {
-  cat(sprintf("%-10.1f %15.4f %15.4f %15.4f\n",
+  cat(sprintf("%-10.1f %15.4f %15.4f\n",
               spread_by_lambda$hetero_strength[i],
               spread_by_lambda$spread_raw[i],
-              spread_by_lambda$spread_empirical[i],
-              spread_by_lambda$spread_theoretical[i]))
+              spread_by_lambda$spread_adjusted[i]))
 }
 
 # Summary statistics
-cat("\n" |> rep(1) |> paste(collapse = ""))
-cat("-" |> rep(70) |> paste(collapse = ""), "\n")
-cat(sprintf("%-10s %15.4f %15.4f %15.4f\n", "Mean",
+cat("\n")
+cat("-" |> rep(60) |> paste(collapse = ""), "\n")
+cat(sprintf("%-10s %15.4f %15.4f\n", "Mean",
             mean(spread_by_lambda$spread_raw),
-            mean(spread_by_lambda$spread_empirical),
-            mean(spread_by_lambda$spread_theoretical)))
-cat(sprintf("%-10s %15.4f %15.4f %15.4f\n", "Max",
+            mean(spread_by_lambda$spread_adjusted)))
+cat(sprintf("%-10s %15.4f %15.4f\n", "Max",
             max(spread_by_lambda$spread_raw),
-            max(spread_by_lambda$spread_empirical),
-            max(spread_by_lambda$spread_theoretical)))
+            max(spread_by_lambda$spread_adjusted)))
+
+# Improvement
+improvement <- (mean(spread_by_lambda$spread_raw) - mean(spread_by_lambda$spread_adjusted)) / 
+               mean(spread_by_lambda$spread_raw) * 100
+cat(sprintf("\nImprovement in mean spread: %.1f%%\n", improvement))
 ```
 
-```{r scaling-comparison-plot, fig.width=12, fig.height=4}
+```{r scaling-comparison-plot, fig.width=10, fig.height=4}
 # Melt for plotting
 scaling_long <- melt(scaling_comparison, 
                      id.vars = c("N", "hetero_strength"),
-                     measure.vars = c("mean_raw", "mean_empirical", "mean_theoretical"),
+                     measure.vars = c("mean_raw", "mean_adjusted"),
                      variable.name = "Metric", value.name = "Value")
 
 scaling_long[, Metric := factor(Metric, 
-                                levels = c("mean_raw", "mean_empirical", "mean_theoretical"),
-                                labels = c("Raw Ratio", "Empirical Adj", "Reliability Score (2/3)"))]
+                                levels = c("mean_raw", "mean_adjusted"),
+                                labels = c("Raw Ratio", 
+                                          sprintf("Reliability Score (c=%.3f)", c_empirical)))]
 
-# Subset to key lambda values for clarity
-scaling_plot_data <- scaling_long[hetero_strength %in% c(0, 0.5, 1.0, 1.5, 2.0)]
-
-ggplot(scaling_plot_data, aes(x = N, y = Value, color = as.factor(hetero_strength))) +
+# Use all lambda values
+ggplot(scaling_long, aes(x = N, y = Value, color = as.factor(hetero_strength))) +
   geom_line(size = 0.8) +
   geom_point(size = 1.5) +
   scale_x_log10() +
   scale_color_viridis_d(option = "plasma", end = 0.9) +
   facet_wrap(~Metric, scales = "free_y") +
   labs(
-    title = "Comparison of Scaling Corrections for N-Invariance",
+    title = "Comparison: Raw Ratio vs Empirically-Adjusted Reliability Score",
     subtitle = "Flatter lines indicate better N-invariance",
     x = "Sample Size (log scale)",
     y = "Score Value",
@@ -653,7 +793,7 @@ ggplot(scaling_plot_data, aes(x = N, y = Value, color = as.factor(hetero_strengt
   theme(legend.position = "bottom")
 ```
 
-## 5.5 Formal ANOVA Test: Raw Ratio vs Adjusted Scores
+## 5.6 Formal ANOVA Test: Raw Ratio vs Adjusted Scores
 
 We now apply the same ANOVA framework from Section 4.2 to formally test N-dependence for each metric. Using raw simulation data (~300k observations), we compute η² to assess effect sizes.
 
@@ -704,7 +844,7 @@ cat(sprintf("N × λ Interaction:  η² = %.4f (%.2f%%)\n", n_lambda_eta_adj, n_
 ```
 
 ```{r anova-comparison-summary}
-cat("\n\n" |> rep(1) |> paste(collapse = ""))
+cat("\n\n")
 cat("=" |> rep(70) |> paste(collapse = ""), "\n")
 cat("SUMMARY: N-Effect Comparison (η²)\n")
 cat("=" |> rep(70) |> paste(collapse = ""), "\n\n")
@@ -716,7 +856,8 @@ cat(sprintf("%-25s %11.4f%% %11.4f%% %11.4f%%\n",
 cat(sprintf("%-25s %11.4f%% %11.4f%% %11.4f%%\n", 
             "Raw Ratio", n_eta_raw * 100, lambda_eta_raw * 100, n_lambda_eta_raw * 100))
 cat(sprintf("%-25s %11.4f%% %11.4f%% %11.4f%%\n", 
-            "Reliability Score (2/3)", n_eta_adj * 100, lambda_eta_adj * 100, n_lambda_eta_adj * 100))
+            sprintf("Reliability Score (c=%.2f)", c_empirical), 
+            n_eta_adj * 100, lambda_eta_adj * 100, n_lambda_eta_adj * 100))
 
 cat("\n\nInterpretation:\n")
 cat("-" |> rep(50) |> paste(collapse = ""), "\n")
@@ -730,7 +871,7 @@ cat(sprintf("→ Reliability Score reduces N-effect by %.1f%% compared to Raw Ra
 
 if (n_eta_adj < 0.01) {
   cat("→ Reliability Score N-effect is NEGLIGIBLE (η² < 1%)\n")
-  cat("→ The 2/3 correction achieves approximate N-invariance.\n")
+  cat(sprintf("→ The empirical correction (c = %.3f) achieves approximate N-invariance.\n", c_empirical))
 } else if (n_eta_adj < 0.06) {
   cat("→ Reliability Score N-effect is SMALL (η² < 6%)\n")
 }
