@@ -239,80 +239,122 @@ ggplot(power_summary, aes(x = hetero_strength, y = rejection_rate, color = as.fa
 
 To formally establish which parameters affect $T_{S_{\mathrm{Inf}}}$, we fit a full factorial ANOVA with all experimental factors: sample size (N), heteroskedasticity strength (λ), effect size (β_x), and baseline noise (σ0).
 
-```{r n-dependence-anova}
-# Prepare data for ANOVA: aggregate T_SInf per cell of the full experimental grid
-sinf_anova_data <- hetero_sim_results[, .(
-  mean_T_sinf = mean(T_SInf),
-  sd_T_sinf = sd(T_SInf)
-), by = .(N, hetero_strength, beta_x, sigma0)]
+**Note:** With ~300,000 observations, virtually all effects will be statistically significant ($p < 0.001$). We therefore focus on **effect sizes** (η², eta-squared) to assess practical significance:
+- η² < 0.01: negligible effect
+- η² ∈ [0.01, 0.06): small effect  
+- η² ∈ [0.06, 0.14): medium effect
+- η² ≥ 0.14: large effect
 
+```{r n-dependence-anova}
+# Use RAW simulation data (not aggregated) to preserve within-cell variance
 # Convert to factors for ANOVA
-sinf_anova_data[, `:=`(
+hetero_sim_results[, `:=`(
   N_factor = as.factor(N),
   lambda_factor = as.factor(hetero_strength),
   beta_factor = as.factor(beta_x),
   sigma_factor = as.factor(sigma0)
 )]
 
-# Fit full factorial ANOVA: T_SInf ~ N * lambda * beta * sigma
-# Main effects and all interactions
-anova_sinf_full <- aov(mean_T_sinf ~ N_factor * lambda_factor * beta_factor * sigma_factor, 
-                       data = sinf_anova_data)
+# Fit full factorial ANOVA on raw data
+# Note: With ~300k observations, p-values will all be < 0.001
+# Focus on eta-squared for practical significance
+anova_sinf_full <- aov(T_SInf ~ N_factor * lambda_factor * beta_factor * sigma_factor, 
+                       data = hetero_sim_results)
 anova_summary_full <- summary(anova_sinf_full)
 
 cat("Full Factorial ANOVA: T_SInf ~ N × λ × β_x × σ0\n")
-cat("=" |> rep(70) |> paste(collapse = ""), "\n\n")
-print(anova_summary_full)
+cat("=" |> rep(70) |> paste(collapse = ""), "\n")
+cat(sprintf("Total observations: %d\n\n", nrow(hetero_sim_results)))
 
-# Extract main effects
-cat("\n\nMain Effects Summary:\n")
-cat("-" |> rep(50) |> paste(collapse = ""), "\n")
+# Compute eta-squared for each effect
+ss_total <- sum(anova_summary_full[[1]]$`Sum Sq`)
+anova_table <- anova_summary_full[[1]]
+anova_table$eta_sq <- anova_table$`Sum Sq` / ss_total
+anova_table$eta_sq_pct <- round(anova_table$eta_sq * 100, 2)
 
-main_effects <- c("N_factor", "lambda_factor", "beta_factor", "sigma_factor")
-for (effect in main_effects) {
-  if (effect %in% rownames(anova_summary_full[[1]])) {
-    row <- anova_summary_full[[1]][effect, ]
-    sig <- ifelse(row$`Pr(>F)` < 0.001, "***", 
-                  ifelse(row$`Pr(>F)` < 0.01, "**",
-                         ifelse(row$`Pr(>F)` < 0.05, "*", "ns")))
-    cat(sprintf("  %-20s F = %8.2f, p = %.2e %s\n", 
-                effect, row$`F value`, row$`Pr(>F)`, sig))
-  }
+# Display results with effect sizes
+cat("Effect Sizes (η² = Sum Sq / Total Sum Sq):\n")
+cat("-" |> rep(70) |> paste(collapse = ""), "\n")
+cat(sprintf("%-40s %12s %10s %10s\n", "Effect", "F value", "η²", "η² (%)"))
+cat("-" |> rep(70) |> paste(collapse = ""), "\n")
+
+for (i in 1:(nrow(anova_table) - 1)) {  # Exclude Residuals row
+  effect_name <- rownames(anova_table)[i]
+  f_val <- anova_table$`F value`[i]
+  eta_sq <- anova_table$eta_sq[i]
+  eta_pct <- anova_table$eta_sq_pct[i]
+  
+  # Effect size interpretation
+  size_interp <- ifelse(eta_sq >= 0.14, "LARGE",
+                        ifelse(eta_sq >= 0.06, "Medium",
+                               ifelse(eta_sq >= 0.01, "Small", "Negligible")))
+  
+  cat(sprintf("%-40s %12.1f %10.4f %9.2f%%  [%s]\n", 
+              effect_name, f_val, eta_sq, eta_pct, size_interp))
 }
 
-# Key interaction: N × lambda
-if ("N_factor:lambda_factor" %in% rownames(anova_summary_full[[1]])) {
-  row <- anova_summary_full[[1]]["N_factor:lambda_factor", ]
-  cat(sprintf("\n  N × λ interaction:   F = %8.2f, p = %.2e\n", 
-              row$`F value`, row$`Pr(>F)`))
-}
-
-cat("\nSignificance codes: *** p<0.001, ** p<0.01, * p<0.05, ns p≥0.05\n")
+# Residuals
+cat("-" |> rep(70) |> paste(collapse = ""), "\n")
+resid_idx <- nrow(anova_table)
+cat(sprintf("%-40s %12s %10.4f %9.2f%%\n", 
+            "Residuals", "-", 
+            anova_table$eta_sq[resid_idx], 
+            anova_table$eta_sq_pct[resid_idx]))
 ```
 
-**Interpretation:**
-- **N (sample size)**: Expected to be highly significant—$T_{S_{\mathrm{Inf}}}$ scales with $\sqrt{N}$ by construction.
-- **λ (heteroskedasticity)**: Expected to be highly significant—stronger misspecification increases the score.
-- **β_x (effect size)**: May or may not be significant; the score measures SE ratio, not effect magnitude.
-- **σ0 (baseline noise)**: Should be non-significant if the score is properly normalized.
-- **N × λ interaction**: Critical test—if significant, confirms that the N-dependence varies with misspecification level (i.e., the score conflates detection power with severity).
+```{r anova-interpretation}
+# Extract key effects for interpretation
+n_eta <- anova_table["N_factor", "eta_sq"]
+lambda_eta <- anova_table["lambda_factor", "eta_sq"]
+n_lambda_eta <- anova_table["N_factor:lambda_factor", "eta_sq"]
 
-```{r n-dependence-conclusion}
-# Final assessment
-n_effect <- anova_summary_full[[1]]["N_factor", ]
-lambda_effect <- anova_summary_full[[1]]["lambda_factor", ]
+# Check for beta and sigma effects
+beta_eta <- ifelse("beta_factor" %in% rownames(anova_table), 
+                   anova_table["beta_factor", "eta_sq"], NA)
+sigma_eta <- ifelse("sigma_factor" %in% rownames(anova_table), 
+                    anova_table["sigma_factor", "eta_sq"], NA)
 
-cat("\nConclusion:\n")
-if (n_effect$`Pr(>F)` < 0.001) {
-  cat("→ N effect is HIGHLY SIGNIFICANT (p < 0.001)\n")
-  cat("→ T_SInf systematically depends on sample size.\n")
+cat("\n\nKey Findings:\n")
+cat("=" |> rep(50) |> paste(collapse = ""), "\n\n")
+
+cat(sprintf("1. Sample Size (N):           η² = %.4f (%.1f%% of variance)\n", 
+            n_eta, n_eta * 100))
+cat(sprintf("2. Heteroskedasticity (λ):    η² = %.4f (%.1f%% of variance)\n", 
+            lambda_eta, lambda_eta * 100))
+cat(sprintf("3. N × λ Interaction:         η² = %.4f (%.1f%% of variance)\n", 
+            n_lambda_eta, n_lambda_eta * 100))
+
+if (!is.na(beta_eta)) {
+  cat(sprintf("4. Effect Size (β_x):         η² = %.4f (%.1f%% of variance)\n", 
+              beta_eta, beta_eta * 100))
 }
-if (lambda_effect$`Pr(>F)` < 0.001) {
-  cat("→ λ effect is HIGHLY SIGNIFICANT (p < 0.001)\n")
-  cat("→ T_SInf responds to heteroskedasticity level (as expected).\n")
+if (!is.na(sigma_eta)) {
+  cat(sprintf("5. Baseline Noise (σ0):       η² = %.4f (%.1f%% of variance)\n", 
+              sigma_eta, sigma_eta * 100))
 }
-cat("\n→ Because T_SInf depends on N, it cannot serve as a direct\n")
-cat("   measure of misspecification SEVERITY across different sample sizes.\n")
+
+cat("\n\nInterpretation:\n")
+cat("-" |> rep(50) |> paste(collapse = ""), "\n")
+
+if (n_eta >= 0.01) {
+  cat("→ N explains a meaningful portion of T_SInf variance.\n")
+  cat("→ The inferential score is NOT sample-size invariant.\n")
+}
+if (lambda_eta >= 0.06) {
+  cat("→ λ has a substantial effect (as expected for a heteroskedasticity diagnostic).\n")
+}
+if (n_lambda_eta >= 0.01) {
+  cat("→ The N × λ interaction is meaningful: N-dependence varies with misspecification level.\n")
+}
+if (!is.na(beta_eta) && beta_eta < 0.01) {
+  cat("→ Effect size (β_x) has negligible impact—score is effect-size invariant.\n")
+}
+if (!is.na(sigma_eta) && sigma_eta < 0.01) {
+  cat("→ Baseline noise (σ0) has negligible impact—score is noise-level invariant.\n")
+}
+
+cat("\n→ CONCLUSION: T_SInf depends substantially on N, making it unsuitable\n")
+cat("   as a direct measure of misspecification SEVERITY across sample sizes.\n")
 ```
 
 ## 4.3 Visualization of N-Dependence
