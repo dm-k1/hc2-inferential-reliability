@@ -362,12 +362,9 @@ cat("   as a direct measure of misspecification SEVERITY across sample sizes.\n"
 Having established statistically significant N-dependence, we now visualize how $T_{S_{\mathrm{Inf}}}$ scales with sample size for fixed levels of heteroskedasticity.
 
 ```{r n-dependence-sinf-plot}
-# Subset to representative parameters for clarity
-# Include more lambda values for comprehensive visualization
-subset_params <- hetero_sim_results[
-  beta_x == 0.5 & sigma0 == 1.0 & 
-  hetero_strength %in% c(0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
-]
+# Subset to representative parameters (beta_x = 0.5, sigma0 = 1.0)
+# Use ALL available lambda values from HETERO_STRENGTH_GRID (0, 0.2, 0.4, ..., 2.0)
+subset_params <- hetero_sim_results[beta_x == 0.5 & sigma0 == 1.0]
 
 # Aggregate mean T_SInf
 sinf_n_summary <- subset_params[, .(
@@ -375,7 +372,7 @@ sinf_n_summary <- subset_params[, .(
   mean_T_sinf = mean(T_SInf)
 ), by = .(N, hetero_strength)]
 
-# Plot Mean T_SInf vs log(N)
+# Plot Mean T_SInf vs log(N) for all lambda levels
 ggplot(sinf_n_summary, aes(x = N, y = mean_T_sinf, color = as.factor(hetero_strength))) +
   geom_line(size = 1) +
   geom_point(size = 2) +
