@@ -156,15 +156,6 @@ print(summary(hetero_sim_results$sr_inf))
 cat("\n\nScaled Inferential Score (sr_inf_adj = sqrt(N) * sr_inf) Summary:\n")
 cat("-" |> rep(40) |> paste(collapse = ""), "\n")
 print(summary(hetero_sim_results$sr_inf_adj))
-
-# Classical coverage summary
-cat("\n\nClassical CI Coverage Summary:\n")
-cat("-" |> rep(40) |> paste(collapse = ""), "\n")
-cat(sprintf("Mean coverage:            %.1f%%\n", mean(hetero_sim_results$coverage) * 100))
-cat(sprintf("Min coverage (by cell):   %.1f%%\n", 
-            hetero_sim_results[, .(cov = mean(coverage)), by = .(N, hetero_strength)][, min(cov)] * 100))
-cat(sprintf("Max coverage (by cell):   %.1f%%\n", 
-            hetero_sim_results[, .(cov = mean(coverage)), by = .(N, hetero_strength)][, max(cov)] * 100))
 ```
 
 ### Distribution of the Inferential Score
