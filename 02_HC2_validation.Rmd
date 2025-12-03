@@ -506,18 +506,21 @@ null_data[, inv_sqrt_N := 1 / sqrt(N)]
 # Regress raw ratio on 1/sqrt(N)
 # Under null, E[sr_ratio] = 1 - c/sqrt(N), so:
 # sr_ratio = intercept + slope * (1/sqrt(N))
-# where slope ≈ -c (negative because ratio < 1 for small N)
+# where slope ≈ -c (negative because HC2 inflates SE for small N, making ratio < 1)
+# However, if slope is positive, the bias goes the other direction
 scaling_fit <- lm(sr_ratio ~ inv_sqrt_N, data = null_data)
 scaling_summary <- summary(scaling_fit)
 
 cat("Empirical Estimation of Scaling Factor\n")
 cat("=" |> rep(60) |> paste(collapse = ""), "\n\n")
-cat("Model: sr_ratio = intercept + c * (1/sqrt(N))\n")
+cat("Model: sr_ratio = intercept + slope * (1/sqrt(N))\n")
 cat("Under null (λ = 0), we expect intercept ≈ 1\n\n")
 
 intercept_est <- coef(scaling_fit)[1]
 slope_est <- coef(scaling_fit)[2]
-c_empirical <- -slope_est  # Negate because ratio < 1 implies negative slope
+# The correction is: sr_ratio_adj = sr_ratio - slope/sqrt(N)
+# So c_empirical is just the slope (with its sign)
+c_empirical <- slope_est
 
 cat(sprintf("Intercept:           %.4f (expected: 1.0)\n", intercept_est))
 cat(sprintf("Slope:               %.4f\n", slope_est))
