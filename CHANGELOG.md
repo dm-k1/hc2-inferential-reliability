@@ -1,5 +1,17 @@
 # CHANGELOG: Null Calibration Module
 
+## 4 December 2025 – Coverage Gap Normalization and Syntax Verification
+
+**Summary**: Standardized inference-breakage coverage gaps to percentage-point units and restored syntax checks to include the dedicated module.
+
+**Inference Breakage Metrics**:
+- `aggregate_breakage_results()` now reports `coverage_gap_classic_pct` and `coverage_gap_robust_pct` computed as percentage-point deviations from nominal 95% coverage, aligning units with the heteroskedastic validation pipeline.
+
+**Tooling**:
+- `check_syntax.R` now parses `R/45_inference_breakage_sims.R` alongside the other R scripts to ensure the restored module remains syntactically valid.
+
+---
+
 ## 3 December 2025 – Documentation Alignment and Module Restoration
 
 **Summary**: Corrected documentation to accurately reflect implementation, restored missing R/45 module, standardized INDEX.md, and centralized visualization logic.

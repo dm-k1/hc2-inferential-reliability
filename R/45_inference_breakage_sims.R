@@ -136,9 +136,10 @@ run_inference_breakage_sim <- function(N_grid,
 #'
 #' @param results data.table from run_inference_breakage_sim
 #'
-#' @return data.table with aggregated statistics
+#' @return data.table with aggregated statistics, including coverage gaps expressed
+#'   in percentage points (`coverage_gap_classic_pct`, `coverage_gap_robust_pct`).
 aggregate_breakage_results <- function(results) {
-  
+
   aggregated <- results[, .(
     n_sims = .N,
     mean_sr_inf = mean(sr_inf),
@@ -147,8 +148,8 @@ aggregate_breakage_results <- function(results) {
     mean_sr_ratio_adj = mean(sr_ratio_adj),
     coverage_classic = mean(coverage_classic),
     coverage_robust = mean(coverage_robust),
-    coverage_gap_classic = 0.95 - mean(coverage_classic),
-    coverage_gap_robust = 0.95 - mean(coverage_robust)
+    coverage_gap_classic_pct = 95 - mean(coverage_classic) * 100,
+    coverage_gap_robust_pct = 95 - mean(coverage_robust) * 100
   ), by = .(N, hetero_strength)]
   
   setorder(aggregated, N, hetero_strength)
