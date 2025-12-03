@@ -559,10 +559,14 @@ This sensitivity check determines whether our calibration on simple regression g
 ```{r sensitivity-analysis}
 # Run dedicated simulations for simple vs multiple regression under null
 N_test_grid <- c(50, 100, 200, 400, 800, 1600)
-n_sims_test <- 1000
+n_sims_test <- 10000
+
+# Set seed for reproducibility of sensitivity analysis
+set.seed(2024)
 
 cat("Sensitivity Analysis: Effect of Model Complexity on Correction Factor\n")
-cat("=" |> rep(60) |> paste(collapse = ""), "\n\n")
+cat("=" |> rep(60) |> paste(collapse = ""), "\n")
+cat(sprintf("Running %d simulations per N per model type\n\n", n_sims_test))
 
 # Function to compute sr_ratio for a single simulation
 compute_sr_ratio_simple <- function(N) {
