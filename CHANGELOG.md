@@ -1,5 +1,27 @@
 # CHANGELOG: Null Calibration Module
 
+## 3 December 2025 – Documentation Alignment and Module Restoration
+
+**Summary**: Corrected documentation to accurately reflect implementation, restored missing R/45 module, standardized INDEX.md, and centralized visualization logic.
+
+**Documentation Corrections**:
+- **CHANGELOG.md**: Removed inaccurate references to "Adaptive Batching" and "Checkpoint Saves" in R/30. The actual implementation uses fixed batching (N=500) for memory efficiency without checkpoint saves.
+- **INDEX.md**: Corrected R/30 description to reflect "Parallelized execution with fixed batching (N=500) for memory efficiency."
+- **INDEX.md**: Added Part 0 (`00_HC_estimators_validation.Rmd`) to Core Notebooks section per AGENTS.MD requirements.
+
+**Module Restoration**:
+- **Created `R/45_inference_breakage_sims.R`**: Restored missing module referenced in Dec 2 CHANGELOG entry. Implements exponential heteroskedasticity simulation (`simulate_heteroskedastic_dgp_exp`), inference breakage analysis (`run_inference_breakage_sim`), aggregation, and plotting functions using canonical metrics from R/20.
+
+**Visualization Centralization**:
+- **Extended `R/60_tables_and_plots.R`**: Added `plot_power_curves()`, `plot_n_dependence()`, `plot_n_invariance_comparison()`, and `plot_benchmark_comparison()` to abstract plotting logic from notebooks.
+
+**Governance Verification**:
+- ✅ No legacy metric terms (`inf_score`, `raw_ratio`) in production code
+- ✅ File structure compliant: 3 root docs, 8 R scripts (00–60 + 45), 3 notebooks, results/
+- ✅ All R scripts pass syntax check
+
+---
+
 ## 3 December 2025 – AGENTS.MD Enforcement and Final Cleanup
 
 **Summary**: Comprehensive enforcement of AGENTS.MD governance policies across entire codebase. Removed legacy files, cleaned configuration, verified metric naming consistency, and documented documentation completeness.
@@ -110,43 +132,34 @@ All metric definitions, DGP specifications, and function interfaces verified con
 
 ---
 
-## Phase 7: Adaptive Batching with Checkpoint Saves
+## Phase 7: Parallelized Null Calibration with Fixed Batching
 
 **Date**: December 2025
 
-**Summary**: Rewrote `R/30_null_calibration.R` to implement adaptive batching with checkpoint saves for fault-tolerant execution. All null calibration steps now use parallel execution with intelligent batch sizing.
+**Summary**: Rewrote `R/30_null_calibration.R` to implement parallelized execution with fixed batching for memory efficiency.
 
 **Technical Changes**:
 
-1. **`simulate_fits_and_save()`**:
-   - Added parameters: `init_batch_size=200`, `max_batch_size=2000`
-   - Implements while-loop with adaptive batch sizing: `batch_size <- min(batch_size * 2, max_batch_size)`
-   - Saves checkpoint after each batch: `fits_N_{N}_batch_{num}.rds`
-   - All batches executed via `furrr::future_map(..., .options = furrr::furrr_options(seed = TRUE))`
+1. **`run_fast_null_calibration()`**:
+   - Uses fixed batch size of 500 simulations per batch
+   - Batches executed in parallel via `furrr::future_map(..., .options = furrr::furrr_options(seed = TRUE))`
+   - No checkpoint saves; results combined at end of each N
 
-2. **`compute_scores_and_save()`**:
-   - Same batching pattern as simulate_fits_and_save()
-   - Saves checkpoint after each batch: `scores_N_{N}_batch_{num}.rds`
-   - Parallel execution preserves reproducibility with seeded RNG
-
-3. **`apply_scaling_and_save()`** and **`select_best_hc()`**:
-   - Unchanged; these steps remain sequential
+2. **`apply_scaling_and_save()`** and **`select_best_hc()`**:
+   - Sequential execution for scaling analysis and HC selection
 
 **Workflow**:
-- Each function runs sequentially for different N values
-- Within each N, fits/scores are generated in adaptive batches
-- Batch sizing optimizes memory usage and parallelization overhead
-- Checkpoint saves enable restart from any batch on failure
+- Each N processed sequentially with progress reporting
+- Within each N, simulations run in fixed-size batches (500) in parallel
+- Results combined and validated for NA/Inf before proceeding
 
 **Reproducibility**:
 - Global seed set once in `R/00_config.R` via `set.seed(2024)`
 - All parallel workers derive independent seeds via `furrr_options(seed = TRUE)`
-- Identical seed → identical batch sequence → identical results across runs
+- Identical seed → identical results across runs
 
 **Files Modified**:
-- `R/30_null_calibration.R` – Complete rewrite of simulate_fits_and_save() and compute_scores_and_save()
-
-**Note**: No convergence detection implemented per user specification ("not aiming for convergence anymore"). Batching purely addresses memory efficiency and fault tolerance.
+- `R/30_null_calibration.R`
 
 ---
 

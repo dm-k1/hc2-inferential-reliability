@@ -76,8 +76,8 @@ save_rds <- function(obj, filename, verbose = TRUE) {
 #' @param title            Plot title
 #'
 #' @return ggplot object
-plot_adjusted_score_vs_coverage <- function(universal_lookup, 
-                                            title = "Universal Reliability Score vs True Coverage") {
+plot_reliability_score_vs_coverage <- function(universal_lookup, 
+                                               title = "Universal Reliability Score vs True Coverage") {
   
   p <- ggplot(universal_lookup, 
               aes(x = true_coverage, y = universal_sr_ratio_adj)) +
@@ -134,9 +134,9 @@ plot_spread_vs_coverage <- function(spread_table,
 #' @param title                 Plot title
 #'
 #' @return ggplot object
-plot_adjusted_score_by_n <- function(aggregated_results,
-                                     coverage_gaps_to_plot = c(0, 10, 20, 30, 40),
-                                     title = "Reliability Score vs Sample Size by Coverage Gap") {
+plot_reliability_score_by_n <- function(aggregated_results,
+                                        coverage_gaps_to_plot = c(0, 10, 20, 30, 40),
+                                        title = "Reliability Score vs Sample Size by Coverage Gap") {
   
   # Subset to selected coverage gaps
   subset_data <- aggregated_results[
@@ -280,4 +280,155 @@ print_full_summary <- function(null_results,
   cat(strrep("-", 30), "\n")
   print(invariance_results$universal_lookup)
   cat("\n\n")
+}
+
+## ============================================================
+## Centralized Visualization Functions (from 02_HC2_validation.Rmd)
+## ============================================================
+
+#' Plot power curves for heteroskedasticity detection
+#'
+#' @param power_summary data.table with columns: N, hetero_strength, rejection_rate
+#' @param title Plot title
+#' @param subtitle Plot subtitle
+#'
+#' @return ggplot object
+plot_power_curves <- function(power_summary,
+                               title = "Power of Inferential Score to Detect Heteroskedasticity",
+                               subtitle = "Rejection Rate of T_SInf > 1.645 (alpha = 0.05)") {
+  
+  p <- ggplot(power_summary, aes(x = hetero_strength, y = rejection_rate, color = as.factor(N))) +
+    geom_line(size = 1) +
+    geom_point() +
+    geom_hline(yintercept = 0.05, linetype = "dashed", color = "gray50") +
+    labs(
+      title = title,
+      subtitle = subtitle,
+      x = "Heteroskedasticity Strength (lambda)",
+      y = "Rejection Rate (Power)",
+      color = "Sample Size (N)"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 14),
+      axis.title = element_text(size = 12),
+      legend.position = "right"
+    )
+  
+  p
+}
+
+#' Plot N-dependence of test statistic
+#'
+#' @param sinf_n_summary data.table with columns: N, hetero_strength, mean_T_sinf
+#' @param title Plot title
+#' @param subtitle Plot subtitle
+#'
+#' @return ggplot object
+plot_n_dependence <- function(sinf_n_summary,
+                               title = "N-Dependence of Test Statistic T_SInf",
+                               subtitle = "Mean T_SInf increases with N for fixed misspecification") {
+  
+  p <- ggplot(sinf_n_summary, aes(x = N, y = mean_T_sinf, color = as.factor(hetero_strength))) +
+    geom_line() +
+    geom_point() +
+    scale_x_log10() +
+    labs(
+      title = title,
+      subtitle = subtitle,
+      x = "Sample Size (log scale)",
+      y = "Mean T_SInf",
+      color = "Lambda"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 14),
+      axis.title = element_text(size = 12),
+      legend.position = "right"
+    )
+  
+  p
+}
+
+#' Plot N-invariance comparison (Raw Ratio vs Reliability Score)
+#'
+#' @param metrics_n_summary data.table with columns: N, hetero_strength, mean_sr_ratio, mean_sr_ratio_adj
+#'
+#' @return arranged ggplot (grid of 2 plots)
+plot_n_invariance_comparison <- function(metrics_n_summary) {
+  
+  # Plot Raw Ratio vs N
+  p1 <- ggplot(metrics_n_summary, aes(x = N, y = mean_sr_ratio, color = as.factor(hetero_strength))) +
+    geom_line() +
+    geom_point() +
+    scale_x_log10() +
+    labs(title = "Raw Ratio vs N", y = "Mean Raw Ratio", x = "N (log)") +
+    theme_minimal() + 
+    theme(legend.position = "none")
+  
+  # Plot Reliability Score vs N
+  p2 <- ggplot(metrics_n_summary, aes(x = N, y = mean_sr_ratio_adj, color = as.factor(hetero_strength))) +
+    geom_line() +
+    geom_point() +
+    scale_x_log10() +
+    labs(title = "Reliability Score vs N", y = "Mean Reliability Score", x = "N (log)") +
+    theme_minimal() + 
+    theme(legend.position = "right")
+  
+  gridExtra::grid.arrange(p1, p2, ncol = 2, widths = c(0.45, 0.55))
+}
+
+#' Plot benchmark comparison (S_Inf vs BP/White tests)
+#'
+#' @param bench_long data.table in long format with columns: N, lambda, Test, Power
+#' @param title Plot title
+#'
+#' @return ggplot object
+plot_benchmark_comparison <- function(bench_long,
+                                       title = "Power Comparison: S_Inf vs Standard Tests") {
+  
+  p <- ggplot(bench_long, aes(x = lambda, y = Power, color = Test)) +
+    geom_line() +
+    facet_wrap(~N) +
+    labs(
+      title = title,
+      x = "Heteroskedasticity Strength (lambda)",
+      y = "Rejection Rate (alpha=0.05)"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 14),
+      axis.title = element_text(size = 12),
+      legend.position = "bottom"
+    )
+  
+  p
+}
+
+#' Plot universal lookup table
+#'
+#' @param universal_lookup data.table with coverage_gap_pct, universal_sr_ratio_adj
+#' @param hc_type Selected HC type for title
+#'
+#' @return ggplot object
+plot_universal_lookup <- function(universal_lookup, hc_type = "HC2") {
+  
+  p <- ggplot(
+    universal_lookup,
+    aes(x = coverage_gap_pct, y = universal_sr_ratio_adj)
+  ) +
+    geom_line(size = 1, color = "steelblue") +
+    geom_point(size = 3, color = "steelblue") +
+    labs(
+      title = sprintf("Universal %s Lookup Table", hc_type),
+      x = "Empirical Coverage Gap (%)",
+      y = "Reliability Score"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 14),
+      axis.title = element_text(size = 12)
+    )
+  
+  p
 }
