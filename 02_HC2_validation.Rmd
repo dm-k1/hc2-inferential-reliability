@@ -575,7 +575,7 @@ We now compare three candidate formulations across the full heteroskedastic grid
 ```{r compare-scaling-factors}
 # Compute all three versions
 hetero_sim_results[, `:=`(
-  sr_ratio_empirical = sr_ratio + c_empirical / sqrt(N),
+  sr_ratio_empirical = sr_ratio - c_empirical / sqrt(N),
   sr_ratio_adj = sr_ratio - (2/3) / sqrt(N)  # Reliability Score
 )]
 
