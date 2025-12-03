@@ -127,7 +127,7 @@ hetero_sim_results <- run_hetero_sim_grid(
 )
 
 # Save raw simulation results
-saveRDS(hetero_sim_results, file.path("results", "hetero_sim_results.rds"))
+save_rds(hetero_sim_results, "hetero_sim_results.rds")
 ```
 
 ## Verify Computed Scores
@@ -344,7 +344,7 @@ We now construct the final lookup table mapping the Reliability Score to expecte
 aggregated_hetero <- aggregate_hetero_sims(hetero_sim_results)
 
 # Save aggregated results
-saveRDS(aggregated_hetero, file.path("results", "hetero_aggregated.rds"))
+save_rds(aggregated_hetero, "hetero_aggregated.rds")
 
 cat(sprintf("Aggregated to %d rows (one per cell of experimental grid)\n\n", nrow(aggregated_hetero)))
 ```
@@ -362,7 +362,7 @@ coverage_gaps <- coverage_table_result$coverage_gaps
 N_values <- coverage_table_result$N_values
 
 # Save comprehensive lookup structure
-saveRDS(coverage_table_result, file.path("results", "coverage_adjusted_by_N.rds"))
+save_rds(coverage_table_result, "coverage_adjusted_by_N.rds")
 ```
 
 ## 7.3 N-Invariance Analysis
@@ -415,8 +415,8 @@ Construct the final universal lookup table by averaging the reliability score ac
 universal_lookup <- build_universal_lookup_table(aggregated_hetero)
 
 # Save lookup table in multiple formats
-saveRDS(universal_lookup, file.path("results", "universal_lookup_table.rds"))
-write.csv(universal_lookup, file.path("results", "universal_lookup_table.csv"), row.names = FALSE)
+save_rds(universal_lookup, "universal_lookup_table.rds")
+save_table_csv(universal_lookup, "universal_lookup_table.csv")
 
 cat("Universal Lookup Table (mean reliability score by coverage gap):\n\n")
 print(universal_lookup)

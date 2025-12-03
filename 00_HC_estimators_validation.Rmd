@@ -29,7 +29,7 @@ The purpose of this document is to rigorously validate the fast, matrix-based im
 Later notebooks use a high-performance matrix engine instead of repeatedly calling `lm()` and `vcovHC()`. We must verify that this engine is **algebraically correct** and **numerically indistinguishable** from the well-vetted R implementations (`stats::lm`, `sandwich::vcovHC`).
 
 **Reproducibility and Tolerances**:
-*   All simulations use a fixed global random seed (2024) set both in `R/00_config.R` and at the start of this notebook for reproducibility.
+*   All simulations use a fixed global random seed (2024) set once in `R/00_config.R` and inherited by this notebook via `source("R/00_config.R")`.
 *   When we compare numerical implementations, differences on the order of $10^{-10}$ or smaller are treated as negligible, consistent with double-precision floating-point rounding error.
 
 # 2. Theoretical Equivalence
@@ -121,7 +121,7 @@ n_sims <- 200
 results_list <- list()
 counter <- 1
 
-set.seed(2024)
+# Note: Global seed is set in R/00_config.R via source() in setup chunk
 
 for (N in N_vals) {
   for (p in p_vals) {

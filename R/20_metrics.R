@@ -79,10 +79,10 @@ compute_sr_ratio <- function(se_classic, se_robust) {
   se_classic / se_robust
 }
 
-#' Compute Adjusted Reliability Score (sr_ratio_adj)
+#' Compute Adjusted Reliability Score (sr_ratio_adj, S_Rel)
 #'
 #' Definition: sr_ratio - 2 / (3 * sqrt(N))
-#' This is the N-invariant reliability score for HC2.
+#' This is the N-invariant Reliability Score S_Rel for HC2.
 #'
 #' @param se_classic Numeric scalar or vector.
 #' @param se_robust  Numeric scalar or vector.
@@ -95,13 +95,13 @@ compute_sr_ratio_adj <- function(se_classic, se_robust, N) {
 #' Compute reliability metrics for a single coefficient
 #'
 #' @param fit        An lm model.
-#' @param coef_name  Name of the coefficient to evaluate (e.g., "x").
+#' @param coef_name  Name of the coefficient to evaluate (default: COEF_OF_INTEREST from config).
 #' @param hc_type    Robust SE type, e.g., "HC2".
 #' @param n_override Optional integer N if you want to override nobs(fit).
 #'
 #' @return A one-row data.table with standardized metric names.
 compute_se_metrics <- function(fit,
-                               coef_name = "x",
+                               coef_name = COEF_OF_INTEREST,
                                hc_type = "HC2",
                                n_override = NULL) {
   
@@ -141,12 +141,12 @@ compute_se_metrics <- function(fit,
 #' Vectorized wrapper for use inside simulations
 #'
 #' @param fit       An lm object.
-#' @param coef_name Name of coefficient.
+#' @param coef_name Name of coefficient (default: COEF_OF_INTEREST from config).
 #' @param hc_type   Robust SE type, default "HC2".
 #'
 #' @return A one-row data.table with N, metrics, etc.
 compute_se_metrics_df <- function(fit,
-                                  coef_name = "x",
+                                  coef_name = COEF_OF_INTEREST,
                                   hc_type = "HC2") {
   compute_se_metrics(fit, coef_name, hc_type = hc_type)
 }

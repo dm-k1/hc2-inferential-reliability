@@ -1,5 +1,34 @@
 # CHANGELOG: Null Calibration Module
 
+## 4 December 2025 – AGENTS.MD Hard Violation Fixes
+
+**Summary**: Resolved deterministic failure policy violation and seed policy violation per AGENTS.MD Section 6.4 and implicit seed rules.
+
+**Deterministic Failure Compliance (R/10_dgp_and_fits.R)**:
+- **Removed `tryCatch`**: The `run_null_simulation_fast()` function previously wrapped `chol()` in `tryCatch` and silently skipped singular matrices via `next`. This violated the "no silent recovery" mandate in AGENTS.MD.
+- **Removed `next` + trim block**: Simulations now fail deterministically if `chol(XtX)` errors. The probability of singular X'X with Gaussian intercept + regressor is effectively zero; any failure indicates a genuine bug.
+- **Result**: Core null-calibration engine now has no hidden error handling.
+
+**Seed Policy Compliance (00_HC_estimators_validation.Rmd)**:
+- **Removed duplicate `set.seed(2024)`**: Part 0 Rmd previously set the seed locally in addition to inheriting it from `R/00_config.R`. This violated the single-seed policy.
+- **Updated prose**: Changed "set both in R/00_config.R and at the start of this notebook" to "set once in R/00_config.R and inherited by this notebook via `source()`".
+
+**Path Centralization**:
+- **R/30_null_calibration.R**: Changed `output_dir` defaults from `"results"` to `RESULTS_PATH` in `run_fast_null_calibration()`, `apply_scaling_and_save()`, and `select_best_hc()`.
+- **02_HC2_validation.Rmd**: Replaced direct `saveRDS(..., file.path("results", ...))` calls with `save_rds()` and `save_table_csv()` helpers to use centralized `RESULTS_PATH`.
+
+**Metric Documentation (R/20_metrics.R)**:
+- **Added S_Rel symbol**: Updated `compute_sr_ratio_adj()` docstring to explicitly reference the mathematical symbol $S_{\mathrm{Rel}}$.
+- **Used `COEF_OF_INTEREST` constant**: Changed `coef_name` default from hardcoded `"x"` to `COEF_OF_INTEREST` in `compute_se_metrics()` and `compute_se_metrics_df()`.
+
+**Verification**:
+- ✅ All R scripts pass syntax check
+- ✅ No `tryCatch` in core simulation engines
+- ✅ Single global seed in R/00_config.R only
+- ✅ All file paths flow through centralized constants or helpers
+
+---
+
 ## 4 December 2025 – Coverage Gap Normalization and Syntax Verification
 
 **Summary**: Standardized inference-breakage coverage gaps to percentage-point units and restored syntax checks to include the dedicated module.

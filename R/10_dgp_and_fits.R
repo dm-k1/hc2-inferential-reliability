@@ -153,14 +153,10 @@ run_null_simulation_fast <- function(n_obs, n_sims = 1, hc_types = c("HC1", "HC2
     y <- d$y
     
     # 2. OLS Core (Inlined for speed)
+    # Deterministic failure: if chol() fails, let it error (per AGENTS.MD)
     XtX <- crossprod(X)
-    # Use tryCatch for singular matrices in rare random cases
-    XtX_inv <- tryCatch(chol2inv(chol(XtX)), error = function(e) NULL)
-    
-    if (is.null(XtX_inv)) {
-      # Skip this simulation if singular (extremely rare with N(0,1))
-      next 
-    }
+    R <- chol(XtX)                # k x k upper triangular, errors if not SPD
+    XtX_inv <- chol2inv(R)
     
     beta <- XtX_inv %*% crossprod(X, y)
     resid <- as.vector(y - X %*% beta)
@@ -202,15 +198,6 @@ run_null_simulation_fast <- function(n_obs, n_sims = 1, hc_types = c("HC1", "HC2
       
       idx_counter <- idx_counter + 1L
     }
-  }
-  
-  # Trim if any skipped (rare)
-  if (idx_counter <= total_rows) {
-    length_to_keep <- idx_counter - 1L
-    res_hc_type <- res_hc_type[1:length_to_keep]
-    res_sr_inf <- res_sr_inf[1:length_to_keep]
-    res_sr_ratio <- res_sr_ratio[1:length_to_keep]
-    res_sim_id <- res_sim_id[1:length_to_keep]
   }
   
   data.table(

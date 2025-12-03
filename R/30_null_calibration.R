@@ -22,7 +22,7 @@ run_fast_null_calibration <- function(N_grid,
                                       n_sims_per_N = 10000,
                                       hc_types = c("HC1", "HC2", "HC3"),
                                       verbose = TRUE,
-                                      output_dir = "results") {
+                                      output_dir = RESULTS_PATH) {
 
   if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
@@ -115,7 +115,7 @@ run_fast_null_calibration <- function(N_grid,
 apply_scaling_and_save <- function(scores_long,
                                     alpha_grid = seq(0.3, 0.7, by = 0.05),
                                     verbose = TRUE,
-                                    output_dir = "results") {
+                                    output_dir = RESULTS_PATH) {
 
   if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
@@ -228,7 +228,7 @@ apply_scaling_and_save <- function(scores_long,
 #' @return Selected HC type (character)
 select_best_hc <- function(scaling_results,
                            verbose = TRUE,
-                           output_dir = "results") {
+                           output_dir = RESULTS_PATH) {
 
   if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
