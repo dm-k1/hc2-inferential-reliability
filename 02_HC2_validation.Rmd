@@ -190,43 +190,10 @@ p2 <- ggplot(hetero_subset, aes(x = sr_inf, fill = as.factor(hetero_strength))) 
 gridExtra::grid.arrange(p1, p2, ncol = 2)
 ```
 
-### Scaled Inferential Score vs Sample Size
-
-We examine how the scaled inferential score $S_{\mathrm{Inf}}^{*} = \sqrt{N} \cdot S_{\mathrm{Inf}}$ varies with sample size for different heteroskedasticity levels.
-
-```{r sinf-by-n, fig.width=10, fig.height=5}
-# Aggregate S_Inf_adj by N and hetero_strength
-sinf_summary <- hetero_sim_results[, .(
-  mean_sinf_adj = mean(sr_inf_adj),
-  sd_sinf_adj = sd(sr_inf_adj),
-  q05 = quantile(sr_inf_adj, 0.05),
-  q95 = quantile(sr_inf_adj, 0.95)
-), by = .(N, hetero_strength)]
-
-# Plot mean S_Inf_adj with confidence bands
-ggplot(sinf_summary[hetero_strength %in% c(0, 0.5, 1.0, 1.5, 2.0)], 
-       aes(x = N, y = mean_sinf_adj, color = as.factor(hetero_strength))) +
-  geom_ribbon(aes(ymin = q05, ymax = q95, fill = as.factor(hetero_strength)), 
-              alpha = 0.2, color = NA) +
-  geom_line(size = 1) +
-  geom_point(size = 2) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
-  scale_x_log10() +
-  labs(
-    title = "Scaled Inferential Score by Sample Size and Heteroskedasticity",
-    subtitle = "Lines show mean; bands show 5th-95th percentile range",
-    x = "Sample Size (log scale)",
-    y = expression(S[Inf]^"*" == sqrt(N) %.% S[Inf]),
-    color = "Lambda",
-    fill = "Lambda"
-  ) +
-  theme_minimal()
-```
-
 **Key Observations:**
-- Under the null ($\lambda = 0$), $S_{\mathrm{Inf}}^{*}$ is centered near zero across all sample sizes.
-- As heteroskedasticity increases, $S_{\mathrm{Inf}}^{*}$ shifts positive (robust SE > classic SE).
-- The score increases with both $\lambda$ and $N$, confirming its behavior as a test statistic.
+- Under the null ($\lambda = 0$), $S_{\mathrm{Inf}}$ is centered near zero.
+- As heteroskedasticity increases, $S_{\mathrm{Inf}}$ shifts positive (robust SE > classic SE).
+- The distribution widens with increasing $\lambda$, reflecting greater variability under misspecification.
 
 # Section 4: Power and N-Dependence of the Inferential Score $S_{\mathrm{Inf}}$
 
