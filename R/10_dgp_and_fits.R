@@ -239,8 +239,13 @@ run_null_simulation_fast <- function(n_obs, n_sims = 1, hc_types = c("HC1", "HC2
 #'
 #' @return A data.table with:
 #'   - se_classic, se_robust: standard errors
-#'   - sr_inf, sr_inf_adj, sr_ratio, sr_ratio_adj: canonical metrics
+#'   - sr_inf: Inferential Score (SE_robust/SE_classic - 1)
+#'   - sr_inf_adj: Scaled Inferential Score (sqrt(N) * sr_inf)
 #'   - coverage: 1 if true beta_x is in classical CI (using se_classic), 0 otherwise
+#'
+#' Note: Ratio metrics (sr_ratio, sr_ratio_adj / Reliability Score) are NOT computed
+#' here. They are derived post-hoc in Section 5 after establishing N-dependence
+#' of the inferential score.
 run_hetero_simulation_fast <- function(N, hetero_strength, hc_type = "HC2", beta_x = 0.5, sigma0 = 1.0, conf_level = 0.95) {
   
   # 1. DGP - Use the canonical function
@@ -270,19 +275,17 @@ run_hetero_simulation_fast <- function(N, hetero_strength, hc_type = "HC2", beta
   ci_upper <- beta_hat + crit_val * se_classic
   coverage <- (beta_x >= ci_lower) & (beta_x <= ci_upper)  # classical CI coverage
   
-  # Scores
+  # Scores: Only compute inferential scores during simulation
+  # Ratio metrics (sr_ratio, sr_ratio_adj) are computed post-hoc in Section 5
+  # after establishing N-dependence of the inferential score
   sr_inf       <- compute_sr_inf(se_classic, se_robust)
   sr_inf_adj   <- compute_sr_inf_adj(se_classic, se_robust, N)
-  sr_ratio     <- compute_sr_ratio(se_classic, se_robust)
-  sr_ratio_adj <- compute_sr_ratio_adj(se_classic, se_robust, N)
   
   data.table(
     se_classic   = se_classic,
     se_robust    = se_robust,
     sr_inf       = sr_inf,
     sr_inf_adj   = sr_inf_adj,
-    sr_ratio     = sr_ratio,
-    sr_ratio_adj = sr_ratio_adj,
     coverage     = as.integer(coverage)
   )
 }

@@ -216,5 +216,49 @@ compute_metric_quantiles <- function(metric_vector, probs = c(0.025, 0.25, 0.5, 
 #'
 #' @return 1 if true_param is within [ci_lower, ci_upper], 0 otherwise
 compute_coverage <- function(ci_lower, ci_upper, true_param) {
+
   as.integer(true_param >= ci_lower & true_param <= ci_upper)
+}
+
+## ============================================================
+## 7. Post-hoc Ratio Metric Computation
+## ============================================================
+
+#' Add ratio metrics to simulation results (post-hoc)
+#'
+#' Computes sr_ratio and sr_ratio_adj (Reliability Score, S_Rel) from
+#' simulation results that contain se_classic, se_robust, and N.
+#' This is called AFTER establishing N-dependence of the inferential score.
+#'
+#' @param sim_results data.table with columns: N, se_classic, se_robust
+#'
+#' @return data.table with added columns: sr_ratio, sr_ratio_adj
+add_ratio_metrics_to_results <- function(sim_results) {
+  sim_results[, `:=`(
+    sr_ratio     = compute_sr_ratio(se_classic, se_robust),
+    sr_ratio_adj = compute_sr_ratio_adj(se_classic, se_robust, N)
+  )]
+  sim_results
+}
+
+#' Add aggregated ratio metrics to aggregated results (post-hoc)
+#'
+#' Computes mean and SD of sr_ratio and sr_ratio_adj from raw simulation
+#' results and merges them into aggregated results.
+#'
+#' @param aggregated_results data.table from aggregate_hetero_sims
+#' @param raw_results        data.table with sr_ratio and sr_ratio_adj columns
+#'
+#' @return data.table with added mean/sd columns for ratio metrics
+add_aggregated_ratio_metrics <- function(aggregated_results, raw_results) {
+  ratio_agg <- raw_results[, .(
+    mean_sr_ratio     = mean(sr_ratio, na.rm = TRUE),
+    sd_sr_ratio       = sd(sr_ratio, na.rm = TRUE),
+    mean_sr_ratio_adj = mean(sr_ratio_adj, na.rm = TRUE),
+    sd_sr_ratio_adj   = sd(sr_ratio_adj, na.rm = TRUE)
+  ), by = .(N, hetero_strength, beta_x, sigma0)]
+  
+  merge(aggregated_results, ratio_agg, 
+        by = c("N", "hetero_strength", "beta_x", "sigma0"),
+        all.x = TRUE)
 }

@@ -107,10 +107,12 @@ cat(sprintf("  HC estimator:               %s\n\n", best_hc))
 
 Execute the full heteroskedastic simulation grid. For each cell (N, λ, β, σ0), generate replicates, compute 95% confidence intervals using both classical and HC standard errors, and record coverage outcomes.
 
-The simulation engine `run_hetero_sim_grid` (in `R/40_hetero_sims.R`) now automatically computes:
-- `sr_inf`: Inferential Score ($\text{SE}_{\text{robust}}/\text{SE}_{\text{classic}} - 1$)
-- `sr_ratio`: Raw Ratio ($\text{SE}_{\text{classic}}/\text{SE}_{\text{robust}}$)
-- `sr_ratio_adj`: Reliability Score ($sr\_ratio - \frac{2}{3\sqrt{N}}$)
+The simulation engine `run_hetero_sim_grid` (in `R/40_hetero_sims.R`) computes:
+- `sr_inf`: Inferential Score $S_{\mathrm{Inf}} = \text{SE}_{\text{robust}}/\text{SE}_{\text{classic}} - 1$
+- `sr_inf_adj`: Scaled Inferential Score $S_{\mathrm{Inf}}^{*} = \sqrt{N} \cdot S_{\mathrm{Inf}}$
+- `coverage`: Classical CI coverage (using $\text{SE}_{\text{classic}}$)
+
+**Note:** Ratio-based metrics ($S_{\mathrm{Rel}}$) are computed post-hoc in Section 5 after establishing the N-dependence problem.
 
 ```{r run-hetero-sims}
 # Note: Random seed already set in R/00_config.R and propagated to parallel workers
@@ -149,6 +151,11 @@ cat(sprintf("Baseline noise (σ0):      %s\n", paste(unique(hetero_sim_results$s
 cat("\n\nInferential Score (sr_inf) Summary:\n")
 cat("-" |> rep(40) |> paste(collapse = ""), "\n")
 print(summary(hetero_sim_results$sr_inf))
+
+# Summary of Scaled Inferential Score
+cat("\n\nScaled Inferential Score (sr_inf_adj = sqrt(N) * sr_inf) Summary:\n")
+cat("-" |> rep(40) |> paste(collapse = ""), "\n")
+print(summary(hetero_sim_results$sr_inf_adj))
 
 # Classical coverage summary
 cat("\n\nClassical CI Coverage Summary:\n")
@@ -374,12 +381,36 @@ $$ S_{\mathrm{Rel}} = \frac{\text{SE}_{\text{classic}}}{\text{SE}_{\text{robust}
 
 The correction term $\frac{2}{3\sqrt{N}}$ is derived from the finite-sample behavior of HC2 under null (established in Part 1).
 
+## 5.0 Compute Ratio Metrics (Post-hoc)
+
+Having established the N-dependence problem for the inferential score, we now compute the ratio-based metrics as a proposed solution. These were not computed during simulation; they are derived here from the stored SE values.
+
+```{r compute-ratio-metrics}
+# Add ratio metrics post-hoc using the stored SE values
+# sr_ratio     = se_classic / se_robust
+# sr_ratio_adj = sr_ratio - 2/(3*sqrt(N))  [Reliability Score]
+hetero_sim_results <- add_ratio_metrics_to_results(hetero_sim_results)
+
+cat("Ratio metrics computed post-hoc:\n")
+cat("  sr_ratio:     SE_classic / SE_robust (Raw Ratio)\n")
+cat("  sr_ratio_adj: sr_ratio - 2/(3*sqrt(N)) (Reliability Score, S_Rel)\n\n")
+
+cat("Reliability Score (sr_ratio_adj) Summary:\n")
+print(summary(hetero_sim_results$sr_ratio_adj))
+```
+
 ## 5.1 Raw Ratio vs Reliability Score
 
 We compare the stability of the **Raw Ratio** ($SE_{classic} / SE_{robust}$) and the **Reliability Score** ($S_{\mathrm{Rel}}$) across sample sizes.
 
 ```{r n-invariance-comparison}
 # Aggregate metrics for the subset (using subset_params from previous section)
+# Recompute subset_params to include ratio metrics
+subset_params <- hetero_sim_results[
+  beta_x == 0.5 & sigma0 == 1.0 & 
+  hetero_strength %in% c(0, 0.5, 1.0, 1.5, 2.0)
+]
+
 metrics_n_summary <- subset_params[, .(
   mean_sr_ratio = mean(sr_ratio),
   mean_sr_ratio_adj = mean(sr_ratio_adj)
@@ -525,7 +556,11 @@ We now construct the final lookup table mapping the Reliability Score to expecte
 
 ```{r hetero-aggregation}
 # Aggregate simulation results by sample size, heteroskedasticity strength, beta, and sigma0
+# Note: This aggregates sr_inf, sr_inf_adj metrics from simulation
 aggregated_hetero <- aggregate_hetero_sims(hetero_sim_results)
+
+# Add aggregated ratio metrics post-hoc (computed in Section 5)
+aggregated_hetero <- add_aggregated_ratio_metrics(aggregated_hetero, hetero_sim_results)
 
 # Save aggregated results
 save_rds(aggregated_hetero, "hetero_aggregated.rds")

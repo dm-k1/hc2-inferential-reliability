@@ -26,8 +26,11 @@
 #'
 #' @return data.table with columns:
 #'   - N, hetero_strength, beta_x, sigma0, sim_id
-#'   - se_classic, se_robust, sr_inf, sr_inf_adj, sr_ratio, sr_ratio_adj
-#'   - coverage
+#'   - se_classic, se_robust, sr_inf, sr_inf_adj
+#'   - coverage (classical CI coverage)
+#'
+#' Note: Ratio metrics (sr_ratio, sr_ratio_adj) are NOT computed during simulation.
+#' They are derived post-hoc in Section 5 after establishing N-dependence.
 run_hetero_sim_grid <- function(N_grid,
                                 hetero_strength_grid,
                                 beta_x_grid,
@@ -131,7 +134,7 @@ run_hetero_sim_grid <- function(N_grid,
 #'
 #' For each (N, hetero_strength, beta_x, sigma0) cell, computes:
 #'   - Mean and SD of se_classic, se_robust
-#'   - Mean and SD of sr_inf, sr_ratio, sr_ratio_adj
+#'   - Mean and SD of sr_inf, sr_inf_adj
 #'   - Mean coverage (for classical CI using se_classic)
 #'   - coverage_gap_pct = 95 - 100 * mean(coverage)
 #'
@@ -140,12 +143,15 @@ run_hetero_sim_grid <- function(N_grid,
 #' parameter. The coverage_gap_pct therefore measures how much classical
 #' inference has "broken" under heteroskedasticity.
 #'
+#' Note: Ratio metrics (sr_ratio, sr_ratio_adj) are added post-hoc via
+#' add_ratio_metrics_to_results() after this aggregation.
+#'
 #' @param hetero_sim_results data.table from run_hetero_sim_grid
 #'
 #' @return data.table with aggregated statistics per cell
 aggregate_hetero_sims <- function(hetero_sim_results) {
   
-  # Core metrics that are always expected
+  # Core metrics from simulation: inferential scores and coverage
   # Note: 'coverage' is for classical CI (se_classic), so coverage_gap_pct
   # measures how much classical inference degrades under heteroskedasticity
   aggregated <- hetero_sim_results[, .(
@@ -156,23 +162,13 @@ aggregate_hetero_sims <- function(hetero_sim_results) {
     sd_se_robust = sd(se_robust, na.rm = TRUE),
     mean_sr_inf = mean(sr_inf, na.rm = TRUE),
     sd_sr_inf = sd(sr_inf, na.rm = TRUE),
-    mean_sr_ratio = mean(sr_ratio, na.rm = TRUE),
-    sd_sr_ratio = sd(sr_ratio, na.rm = TRUE),
-    mean_sr_ratio_adj = mean(sr_ratio_adj, na.rm = TRUE),
-    sd_sr_ratio_adj = sd(sr_ratio_adj, na.rm = TRUE),
+    mean_sr_inf_adj = mean(sr_inf_adj, na.rm = TRUE),
+    sd_sr_inf_adj = sd(sr_inf_adj, na.rm = TRUE),
     mean_coverage = mean(coverage, na.rm = TRUE),
     coverage_gap_pct = 95 - mean(coverage, na.rm = TRUE) * 100  # classical CI coverage gap
   ), by = .(N, hetero_strength, beta_x, sigma0)]
   
-  # Optional metrics
-  if ("sr_inf_adj" %in% names(hetero_sim_results)) {
-    extra <- hetero_sim_results[, .(
-      mean_sr_inf_adj = mean(sr_inf_adj, na.rm = TRUE),
-      sd_sr_inf_adj = sd(sr_inf_adj, na.rm = TRUE)
-    ), by = .(N, hetero_strength, beta_x, sigma0)]
-    
-    aggregated <- merge(aggregated, extra, by = c("N", "hetero_strength", "beta_x", "sigma0"))
-  }
+  # Ratio metrics (sr_ratio, sr_ratio_adj) are added later via add_ratio_metrics_to_results()
   
   setorder(aggregated, N, hetero_strength, beta_x, sigma0)
   aggregated
