@@ -164,7 +164,8 @@ S_{\mathrm{Inf}}^{\ast} = \sqrt{N} \cdot S_{\mathrm{Inf}}
 	•	Symbol: S_{\mathrm{Rel}}
 	•	Code: sr_ratio_adj
 	•	Definition (HC2-based finite-sample bias correction):
-S_{\mathrm{Rel}} = \text{sr\_ratio} - \frac{2}{3\sqrt{N}}
+S_{\mathrm{Rel}} = \text{sr\_ratio} - \frac{c}{\sqrt{N}}
+	•	The correction factor c is estimated empirically in Notebook 02 (Section 5.3) by regressing sr_ratio on 1/sqrt(N) under the homoskedastic null. For simple regression with HC2, c ≈ 0.25.
 	•	This score is calibrated against empirical coverage loss under controlled heteroskedasticity and is intended to be approximately N-invariant.
 
 The agent must:

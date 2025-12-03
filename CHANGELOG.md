@@ -1,5 +1,80 @@
 # CHANGELOG: Null Calibration Module
 
+## 3 December 2025 – Pipeline Compliance and Empirical c Correction
+
+**Summary**: Major refactoring to enforce AGENTS.MD pipeline compliance. Removed hardcoded theoretical constant 2/(3√N) from metrics, replaced with empirically derived c ≈ 0.25. Centralized all simulation and plotting functions; eliminated ad-hoc inline code from notebooks.
+
+### Breaking Change: Reliability Score Definition
+
+**OLD (INCORRECT)**:
+```r
+sr_ratio_adj = sr_ratio - 2 / (3 * sqrt(N))  # Hardcoded theoretical value
+```
+
+**NEW (CORRECT)**:
+```r
+sr_ratio_adj = sr_ratio - c / sqrt(N)  # c estimated empirically (~0.25 for simple regression)
+```
+
+**Rationale**: The theoretical 2/3 constant was incorrect. Empirical estimation via regressing sr_ratio on 1/√N under the null shows c ≈ 0.24-0.25 for simple regression with HC2.
+
+### R/20_metrics.R Changes
+
+- **`compute_sr_ratio_adj(se_classic, se_robust, N, c_correction)`**: Now requires explicit `c_correction` parameter (no default)
+- **`compute_se_metrics()`**: No longer computes sr_ratio_adj (done post-hoc with empirical c)
+- **`compute_metrics_from_ses()`**: No longer returns sr_ratio_adj
+- **`add_ratio_metrics_to_results()`**: Only computes sr_ratio (sr_ratio_adj done post-hoc)
+- **`add_aggregated_ratio_metrics()`**: Only aggregates sr_ratio (sr_ratio_adj aggregated in notebook)
+- **Header documentation**: Updated to reflect empirical c estimation workflow
+
+### R/10_dgp_and_fits.R Changes
+
+- **Added `run_null_simulation_fast_multiple()`**: Multiple regression (p=3) null simulation for sensitivity analysis
+- **Added `run_sensitivity_analysis()`**: Orchestrates simple vs multiple regression comparison
+- **Added `run_benchmark_simulations()`**: Centralized BP/White/S_Inf benchmark using canonical DGP
+
+### R/60_tables_and_plots.R Changes
+
+Added centralized visualization functions:
+- **`plot_sinf_distribution()`**: Histogram + density of S_Inf by lambda
+- **`plot_finite_sample_bias()`**: Regression plot of sr_ratio vs 1/√N
+- **`plot_sensitivity_comparison()`**: Simple vs multiple regression bias comparison
+- **`plot_tsinf_vs_ratio()`**: Side-by-side T_SInf vs Raw Ratio N-dependence
+- **`plot_scaling_comparison()`**: Raw Ratio vs Adjusted faceted comparison
+- **`plot_coverage_degradation()`**: Classical coverage vs heteroskedasticity
+
+### 02_HC2_validation.Rmd Refactoring
+
+**Section 3 (Distribution)**: Now uses `plot_sinf_distribution()` from pipeline
+**Section 4.1 (Power)**: Now uses `plot_power_curves()` from pipeline
+**Section 4.3 (N-Dependence)**: Now uses `plot_n_dependence()` from pipeline
+**Section 5.1 (Comparison)**: Now uses `plot_tsinf_vs_ratio()` from pipeline
+**Section 5.3 (Bias)**: Now uses `plot_finite_sample_bias()` from pipeline
+**Section 5.4 (Sensitivity)**: Now uses `run_sensitivity_analysis()` from pipeline (removed ad-hoc functions)
+**Section 5.5 (Scaling)**: Now uses `plot_scaling_comparison()` from pipeline
+**Section 5.7 (Coverage)**: Now uses `plot_coverage_degradation()` from pipeline
+**Section 6 (Benchmark)**: Now uses `run_benchmark_simulations()` from pipeline (removed ad-hoc functions)
+**Section 7.4 (Lookup)**: Now uses `plot_universal_lookup()` from pipeline
+
+**Seed Compliance**: Removed inline `set.seed(2024)` calls; all seeds flow from global config via `furrr_options(seed = TRUE)`
+
+### AGENTS.MD Update
+
+Updated Section 5 (Metric Definitions):
+- Reliability Score formula now shows `c/√N` with note that c is empirically estimated
+- Added: "The correction factor c is estimated empirically in Notebook 02 (Section 5.3)"
+- Specified: "For simple regression with HC2, c ≈ 0.25"
+
+### Verification
+
+- ✅ All R scripts pass syntax check
+- ✅ No ad-hoc simulation functions in notebooks
+- ✅ All plots use centralized R/60 functions
+- ✅ Single global seed in R/00_config.R
+- ✅ c_empirical computed in notebook, not hardcoded
+
+---
+
 ## 4 December 2025 – Classical Coverage and Documentation Alignment
 
 **Summary**: Changed coverage computation to use classical CI (se_classic) instead of robust CI, and aligned all documentation with implementation details.

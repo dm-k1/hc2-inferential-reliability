@@ -290,6 +290,191 @@ run_hetero_simulation_fast <- function(N, hetero_strength, hc_type = "HC2", beta
   )
 }
 
+#' Optimized Null Simulation for Multiple Regression (p = 3)
+#'
+#' Similar to run_null_simulation_fast() but for a multiple regression model
+#' with an additional noise covariate: y ~ x + z (p = 3 parameters).
+#' Used for sensitivity analysis comparing simple vs multiple regression
+#' finite-sample bias behavior.
+#'
+#' @param n_obs The sample size (N).
+#' @param n_sims Number of simulations to run (default 1).
+#' @param hc_type HC estimator type (default "HC2").
+#'
+#' @return A data.table with one row per simulation, containing:
+#'   - sim_id: simulation index (1 to n_sims)
+#'   - sr_ratio: raw ratio (se_classic / se_robust) for x coefficient
+run_null_simulation_fast_multiple <- function(n_obs, n_sims = 1, hc_type = "HC2") {
+  
+  # Pre-allocate vectors
+  res_sr_ratio <- numeric(n_sims)
+  
+  k <- 3L  # Intercept + x + z
+  df <- n_obs - k
+  
+  for (s in seq_len(n_sims)) {
+    # DGP: y ~ x + z (homoskedastic null)
+    x <- rnorm(n_obs)
+    z <- rnorm(n_obs)
+    y <- 1 + 0.5 * x + 0.3 * z + rnorm(n_obs)  # Homoskedastic
+    
+    X <- cbind(1, x, z)
+    
+    # OLS Core
+    XtX <- crossprod(X)
+    R <- chol(XtX)
+    XtX_inv <- chol2inv(R)
+    
+    beta <- XtX_inv %*% crossprod(X, y)
+    resid <- as.vector(y - X %*% beta)
+    sigma2 <- sum(resid^2) / df
+    
+    # Classic SE for x (index 2)
+    se_classic_x <- sqrt(sigma2 * XtX_inv[2, 2])
+    
+    # Leverage for HC
+    M <- X %*% XtX_inv
+    h <- rowSums(M * X)
+    M2_sq <- M[, 2]^2  # For x coefficient
+    
+    # Compute u_sq based on HC type
+    if (hc_type == "HC2") {
+      u_sq <- resid^2 / (1 - h)
+    } else if (hc_type == "HC1") {
+      u_sq <- (n_obs / df) * resid^2
+    } else if (hc_type == "HC3") {
+      u_sq <- resid^2 / ((1 - h)^2)
+    } else {
+      stop("Unsupported HC type")
+    }
+    
+    # Robust SE for x
+    se_robust_x <- sqrt(sum(M2_sq * u_sq))
+    
+    res_sr_ratio[s] <- se_classic_x / se_robust_x
+  }
+  
+  data.table(
+    sim_id = seq_len(n_sims),
+    sr_ratio = res_sr_ratio
+  )
+}
+
+#' Run Sensitivity Analysis: Simple vs Multiple Regression
+#'
+#' Compares finite-sample bias in sr_ratio between simple regression (p=2)
+#' and multiple regression (p=3) under the homoskedastic null.
+#' Uses run_null_simulation_fast() and run_null_simulation_fast_multiple().
+#'
+#' @param N_grid Vector of sample sizes to test
+#' @param n_sims Number of simulations per N
+#' @param hc_type HC estimator type (default "HC2")
+#' @param verbose Print progress
+#'
+#' @return data.table with columns: N, model, sr_ratio, inv_sqrt_N
+run_sensitivity_analysis <- function(N_grid, n_sims = 10000, hc_type = "HC2", verbose = TRUE) {
+  
+  if (verbose) {
+    cat("Sensitivity Analysis: Simple vs Multiple Regression\n")
+    cat(sprintf("  N values: %s\n", paste(N_grid, collapse = ", ")))
+    cat(sprintf("  Sims per N: %d\n", n_sims))
+    cat(sprintf("  HC type: %s\n\n", hc_type))
+  }
+  
+  results_list <- list()
+  
+  for (N in N_grid) {
+    if (verbose) cat(sprintf("  Processing N = %d...\n", N))
+    
+    # Simple regression (p = 2)
+    simple_res <- run_null_simulation_fast(n_obs = N, n_sims = n_sims, hc_types = hc_type)
+    simple_res[, `:=`(N = N, model = "Simple (p=2)", inv_sqrt_N = 1/sqrt(N))]
+    
+    # Multiple regression (p = 3)
+    multiple_res <- run_null_simulation_fast_multiple(n_obs = N, n_sims = n_sims, hc_type = hc_type)
+    multiple_res[, `:=`(N = N, model = "Multiple (p=3)", inv_sqrt_N = 1/sqrt(N))]
+    
+    results_list[[length(results_list) + 1]] <- simple_res[, .(N, model, sr_ratio, inv_sqrt_N)]
+    results_list[[length(results_list) + 1]] <- multiple_res[, .(N, model, sr_ratio, inv_sqrt_N)]
+  }
+  
+  results <- rbindlist(results_list)
+  
+  if (verbose) cat("Done.\n\n")
+  
+  results
+}
+
+#' Run Benchmark Simulations Against Standard Tests
+#'
+#' Compares the detection power of S_Inf against Breusch-Pagan and White tests.
+#' Uses the canonical heteroskedastic DGP and pipeline functions.
+#'
+#' @param N_grid Vector of sample sizes
+#' @param lambda_grid Vector of heteroskedasticity strengths
+#' @param n_reps Number of replications per cell
+#' @param hc_type HC estimator type for S_Inf (default "HC2")
+#' @param verbose Print progress
+#'
+#' @return data.table with columns: N, lambda, reject_bp, reject_white, reject_sinf
+run_benchmark_simulations <- function(N_grid, lambda_grid, n_reps = 200, hc_type = "HC2", verbose = TRUE) {
+  
+  if (verbose) {
+    cat("Benchmark: S_Inf vs Breusch-Pagan and White Tests\n")
+    cat(sprintf("  N values: %s\n", paste(N_grid, collapse = ", ")))
+    cat(sprintf("  Lambda values: %d levels\n", length(lambda_grid)))
+    cat(sprintf("  Replications: %d per cell\n\n", n_reps))
+  }
+  
+  # Build parameter grid
+  param_grid <- expand.grid(N = N_grid, lambda = lambda_grid)
+  n_cells <- nrow(param_grid)
+  
+  # Results storage
+  results <- data.table(
+    N = param_grid$N,
+    lambda = param_grid$lambda,
+    reject_bp = NA_real_,
+    reject_white = NA_real_,
+    reject_sinf = NA_real_
+  )
+  
+  for (i in seq_len(n_cells)) {
+    N <- param_grid$N[i]
+    lambda <- param_grid$lambda[i]
+    
+    # Run replications
+    reps <- replicate(n_reps, {
+      # Use canonical DGP
+      d <- simulate_heteroskedastic_dgp(N = N, beta_x = 0.5, hetero_strength = lambda, sigma0 = 1.0)
+      fit <- lm(y ~ x, data = d)
+      
+      # Standard tests
+      bp_pval <- lmtest::bptest(fit)$p.value
+      white_pval <- lmtest::bptest(fit, ~ x + I(x^2))$p.value
+      
+      # S_Inf test: T_SInf = sqrt(N) * (SE_robust / SE_classic - 1)
+      se_cls <- summary(fit)$coefficients["x", "Std. Error"]
+      se_rob <- sqrt(diag(sandwich::vcovHC(fit, type = hc_type)))["x"]
+      t_sinf <- sqrt(N) * (se_rob / se_cls - 1)
+      
+      c(
+        reject_bp = bp_pval < 0.05,
+        reject_white = white_pval < 0.05,
+        reject_sinf = t_sinf > 1.645
+      )
+    })
+    
+    results$reject_bp[i] <- mean(reps["reject_bp", ])
+    results$reject_white[i] <- mean(reps["reject_white", ])
+    results$reject_sinf[i] <- mean(reps["reject_sinf", ])
+  }
+  
+  if (verbose) cat("Benchmark complete.\n\n")
+  
+  results
+}
+
 #' Fit OLS model and compute HC confidence intervals
 #'
 #' Convenience wrapper around fit_ols_hc() for simple regression (y ~ x).

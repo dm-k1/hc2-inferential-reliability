@@ -163,31 +163,8 @@ print(summary(hetero_sim_results$sr_inf_adj))
 We examine the distribution of $S_{\mathrm{Inf}}$ across all simulations and by heteroskedasticity level.
 
 ```{r sinf-distribution, fig.width=10, fig.height=4}
-# Overall distribution of S_Inf
-p1 <- ggplot(hetero_sim_results, aes(x = sr_inf)) +
-  geom_histogram(bins = 50, fill = "steelblue", color = "white", alpha = 0.7) +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
-  labs(
-    title = "Distribution of Inferential Score (All Simulations)",
-    x = expression(S[Inf]),
-    y = "Count"
-  ) +
-  theme_minimal()
-
-# Distribution by heteroskedasticity strength (subset for clarity)
-hetero_subset <- hetero_sim_results[hetero_strength %in% c(0, 0.5, 1.0, 1.5, 2.0)]
-p2 <- ggplot(hetero_subset, aes(x = sr_inf, fill = as.factor(hetero_strength))) +
-  geom_density(alpha = 0.5) +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
-  labs(
-    title = "Inferential Score by Heteroskedasticity Level",
-    x = expression(S[Inf]),
-    y = "Density",
-    fill = "Lambda"
-  ) +
-  theme_minimal()
-
-gridExtra::grid.arrange(p1, p2, ncol = 2)
+# Use centralized plotting function from R/60_tables_and_plots.R
+plot_sinf_distribution(hetero_sim_results, lambda_subset = c(0, 0.5, 1.0, 1.5, 2.0))
 ```
 
 **Key Observations:**
@@ -215,19 +192,8 @@ power_summary <- hetero_sim_results[, .(
   rejection_rate = mean(reject_null)
 ), by = .(N, hetero_strength)]
 
-# Plot Power Curves
-ggplot(power_summary, aes(x = hetero_strength, y = rejection_rate, color = as.factor(N))) +
-  geom_line(size = 1) +
-  geom_point() +
-  geom_hline(yintercept = 0.05, linetype = "dashed", color = "gray50") +
-  labs(
-    title = "Power of Inferential Score to Detect Heteroskedasticity",
-    subtitle = "Rejection Rate of T_SInf > 1.645 (alpha = 0.05)",
-    x = "Heteroskedasticity Strength (lambda)",
-    y = "Rejection Rate (Power)",
-    color = "Sample Size (N)"
-  ) +
-  theme_minimal()
+# Use centralized plotting function from R/60_tables_and_plots.R
+print(plot_power_curves(power_summary))
 ```
 
 **Interpretation:**
@@ -372,21 +338,8 @@ sinf_n_summary <- subset_params[, .(
   mean_T_sinf = mean(T_SInf)
 ), by = .(N, hetero_strength)]
 
-# Plot Mean T_SInf vs log(N) for all lambda levels
-ggplot(sinf_n_summary, aes(x = N, y = mean_T_sinf, color = as.factor(hetero_strength))) +
-  geom_line(size = 1) +
-  geom_point(size = 2) +
-  scale_x_log10() +
-  scale_color_viridis_d(option = "plasma", end = 0.9) +
-  labs(
-    title = "N-Dependence of Test Statistic T_SInf",
-    subtitle = "Mean T_SInf increases with N for fixed misspecification level",
-    x = "Sample Size (log scale)",
-    y = "Mean T_SInf",
-    color = "λ"
-  ) +
-  theme_minimal() +
-  theme(legend.position = "right")
+# Use centralized plotting function from R/60_tables_and_plots.R
+print(plot_n_dependence(sinf_n_summary))
 ```
 
 **Conclusion from Section 4:**
@@ -434,38 +387,8 @@ comparison_summary <- subset_params[, .(
   mean_sr_ratio = mean(sr_ratio)
 ), by = .(N, hetero_strength)]
 
-# Plot T_SInf vs N (already shown to be N-dependent)
-p1 <- ggplot(comparison_summary, aes(x = N, y = mean_T_sinf, color = as.factor(hetero_strength))) +
-  geom_line(size = 0.8) +
-  geom_point(size = 1.5) +
-  scale_x_log10() +
-  scale_color_viridis_d(option = "plasma", end = 0.9) +
-  labs(
-    title = expression("Scaled Inferential Score " * T[SInf] * " vs N"),
-    subtitle = "Strong N-dependence: lines diverge with increasing N",
-    y = expression("Mean " * T[SInf]),
-    x = "N (log scale)"
-  ) +
-  theme_minimal() +
-  theme(legend.position = "none")
-
-# Plot Raw Ratio vs N
-p2 <- ggplot(comparison_summary, aes(x = N, y = mean_sr_ratio, color = as.factor(hetero_strength))) +
-  geom_line(size = 0.8) +
-  geom_point(size = 1.5) +
-  scale_x_log10() +
-  scale_color_viridis_d(option = "plasma", end = 0.9) +
-  labs(
-    title = "Raw Ratio vs N",
-    subtitle = "Much weaker N-dependence: lines remain approximately parallel",
-    y = "Mean Raw Ratio",
-    x = "N (log scale)",
-    color = "λ"
-  ) +
-  theme_minimal() +
-  theme(legend.position = "right")
-
-gridExtra::grid.arrange(p1, p2, ncol = 2, widths = c(0.45, 0.55))
+# Use centralized plotting function from R/60_tables_and_plots.R
+plot_tsinf_vs_ratio(comparison_summary)
 ```
 
 **Key Observation:** The Raw Ratio exhibits dramatically less N-dependence than $T_{S_{\mathrm{Inf}}}$. While $T_{S_{\mathrm{Inf}}}$ shows lines that fan out (diverge) as N increases, the Raw Ratio lines remain approximately parallel across the N range. However, there is still residual finite-sample bias visible as a slight upward drift with N.
@@ -527,24 +450,8 @@ null_summary <- null_data[, .(
 ), by = N]
 null_summary[, inv_sqrt_N := 1 / sqrt(N)]
 
-# Plot with empirical fit
-ggplot(null_summary, aes(x = inv_sqrt_N, y = mean_sr_ratio)) +
-  geom_point(size = 3, color = "steelblue") +
-  geom_errorbar(aes(ymin = mean_sr_ratio - 1.96*se_sr_ratio, 
-                    ymax = mean_sr_ratio + 1.96*se_sr_ratio), 
-                width = 0.002, color = "steelblue") +
-  # Empirical fit
-  geom_abline(intercept = intercept_est, slope = slope_est, 
-              color = "red", linetype = "solid", size = 1) +
-  labs(
-    title = "Finite-Sample Bias in Raw Ratio Under Null",
-    subtitle = sprintf("Empirical fit: c = %.3f", c_empirical),
-    x = expression(1/sqrt(N)),
-    y = "Mean Raw Ratio"
-  ) +
-  theme_minimal() +
-  annotate("text", x = 0.10, y = intercept_est + slope_est * 0.05, 
-           label = sprintf("c = %.3f", c_empirical), color = "red", size = 5)
+# Use centralized plotting function from R/60_tables_and_plots.R
+print(plot_finite_sample_bias(null_summary, intercept_est, slope_est))
 ```
 
 ## 5.4 Sensitivity Analysis: Effect of Model Complexity
@@ -557,80 +464,23 @@ We investigate whether the correction factor $c$ is sensitive to model complexit
 This sensitivity check determines whether our calibration on simple regression generalizes to more complex models.
 
 ```{r sensitivity-analysis}
-# Run dedicated simulations for simple vs multiple regression under null
+# Run sensitivity analysis using pipeline functions from R/10_dgp_and_fits.R
+# Note: Global seed is set in R/00_config.R; parallel seeds handled via furrr_options(seed = TRUE)
 N_test_grid <- c(50, 100, 200, 400, 800, 1600)
 n_sims_test <- 10000
 
-# Set seed for reproducibility of sensitivity analysis
-set.seed(2024)
-
 cat("Sensitivity Analysis: Effect of Model Complexity on Correction Factor\n")
 cat("=" |> rep(60) |> paste(collapse = ""), "\n")
+cat(sprintf("Using pipeline functions: run_null_simulation_fast(), run_null_simulation_fast_multiple()\n"))
 cat(sprintf("Running %d simulations per N per model type\n\n", n_sims_test))
 
-# Function to compute sr_ratio for a single simulation
-compute_sr_ratio_simple <- function(N) {
-  # Simple regression: y ~ x (2 parameters)
-  x <- rnorm(N)
-  y <- 1 + 0.5 * x + rnorm(N)  # Homoskedastic null
-  fit <- lm(y ~ x)
-  
-  # Classical SE
-  se_classic <- summary(fit)$coefficients["x", "Std. Error"]
-  
-  # HC2 SE
-  vcov_hc2 <- sandwich::vcovHC(fit, type = "HC2")
-  se_robust <- sqrt(diag(vcov_hc2))["x"]
-  
-  se_classic / se_robust
-}
-
-compute_sr_ratio_multiple <- function(N) {
-  # Multiple regression: y ~ x + z (3 parameters)
-  x <- rnorm(N)
-  z <- rnorm(N)
-  y <- 1 + 0.5 * x + 0.3 * z + rnorm(N)  # Homoskedastic null
-  fit <- lm(y ~ x + z)
-  
-  # Classical SE for x coefficient
-  se_classic <- summary(fit)$coefficients["x", "Std. Error"]
-  
-  # HC2 SE for x coefficient
-  vcov_hc2 <- sandwich::vcovHC(fit, type = "HC2")
-  se_robust <- sqrt(diag(vcov_hc2))["x"]
-  
-  se_classic / se_robust
-}
-
-# Run simulations for simple regression (p = 2)
-cat("Running simulations for simple regression (y ~ x, p = 2)...\n")
-simple_results <- data.table(
-  N = rep(N_test_grid, each = n_sims_test),
-  model = "Simple (p=2)",
-  sr_ratio = NA_real_
+# Use centralized pipeline function from R/10_dgp_and_fits.R
+df_test_results <- run_sensitivity_analysis(
+  N_grid = N_test_grid,
+  n_sims = n_sims_test,
+  hc_type = best_hc,
+  verbose = TRUE
 )
-
-for (i in 1:nrow(simple_results)) {
-  simple_results$sr_ratio[i] <- compute_sr_ratio_simple(simple_results$N[i])
-}
-
-# Run simulations for multiple regression (p = 3)
-cat("Running simulations for multiple regression (y ~ x + z, p = 3)...\n")
-multiple_results <- data.table(
-  N = rep(N_test_grid, each = n_sims_test),
-  model = "Multiple (p=3)",
-  sr_ratio = NA_real_
-)
-
-for (i in 1:nrow(multiple_results)) {
-  multiple_results$sr_ratio[i] <- compute_sr_ratio_multiple(multiple_results$N[i])
-}
-
-# Combine results
-df_test_results <- rbind(simple_results, multiple_results)
-df_test_results[, inv_sqrt_N := 1 / sqrt(N)]
-
-cat("Done.\n\n")
 ```
 
 ```{r fit-scaling-by-model}
@@ -667,27 +517,9 @@ df_summary <- df_test_results[, .(
   se_sr_ratio = sd(sr_ratio) / sqrt(.N)
 ), by = .(N, model, inv_sqrt_N)]
 
-# Plot comparison
-ggplot(df_summary, aes(x = inv_sqrt_N, y = mean_sr_ratio, color = model)) +
-  geom_point(size = 3) +
-  geom_errorbar(aes(ymin = mean_sr_ratio - 1.96*se_sr_ratio, 
-                    ymax = mean_sr_ratio + 1.96*se_sr_ratio), 
-                width = 0.003) +
-  # Fit lines
-  geom_abline(intercept = intercept_simple, slope = c_simple, 
-              color = "steelblue", linetype = "solid", size = 1) +
-  geom_abline(intercept = intercept_multiple, slope = c_multiple, 
-              color = "coral", linetype = "solid", size = 1) +
-  scale_color_manual(values = c("Simple (p=2)" = "steelblue", "Multiple (p=3)" = "coral")) +
-  labs(
-    title = "Finite-Sample Bias Decreases with Model Complexity",
-    subtitle = sprintf("Simple (p=2): c = %.3f | Multiple (p=3): c = %.3f", c_simple, c_multiple),
-    x = expression(1/sqrt(N)),
-    y = "Mean Raw Ratio",
-    color = "Model"
-  ) +
-  theme_minimal() +
-  theme(legend.position = "right")
+# Use centralized plotting function from R/60_tables_and_plots.R
+print(plot_sensitivity_comparison(df_summary, c_simple, c_multiple, 
+                                   intercept_simple, intercept_multiple))
 ```
 
 ```{r sensitivity-conclusion}
@@ -773,22 +605,8 @@ scaling_long[, Metric := factor(Metric,
                                 labels = c("Raw Ratio", 
                                           sprintf("Reliability Score (c=%.3f)", c_empirical)))]
 
-# Use all lambda values
-ggplot(scaling_long, aes(x = N, y = Value, color = as.factor(hetero_strength))) +
-  geom_line(size = 0.8) +
-  geom_point(size = 1.5) +
-  scale_x_log10() +
-  scale_color_viridis_d(option = "plasma", end = 0.9) +
-  facet_wrap(~Metric, scales = "free_y") +
-  labs(
-    title = "Comparison: Raw Ratio vs Empirically-Adjusted Reliability Score",
-    subtitle = "Flatter lines indicate better N-invariance",
-    x = "Sample Size (log scale)",
-    y = "Score Value",
-    color = "λ"
-  ) +
-  theme_minimal() +
-  theme(legend.position = "bottom")
+# Use centralized plotting function from R/60_tables_and_plots.R
+print(plot_scaling_comparison(scaling_long))
 ```
 
 ## 5.6 Formal ANOVA Test: Raw Ratio vs Adjusted Scores
@@ -845,19 +663,8 @@ coverage_summary <- hetero_sim_results[, .(
   se_coverage = sd(coverage) / sqrt(.N) * 100
 ), by = .(N, hetero_strength)]
 
-ggplot(coverage_summary, aes(x = hetero_strength, y = mean_coverage, color = as.factor(N))) +
-  geom_line(size = 1) +
-  geom_point(size = 2) +
-  geom_hline(yintercept = 95, linetype = "dashed", color = "gray50") +
-  labs(
-    title = "Classical CI Coverage Degradation Under Heteroskedasticity",
-    subtitle = "Coverage of classical Wald intervals (using SE_classic)",
-    x = "Heteroskedasticity Strength (lambda)",
-    y = "Coverage (%)",
-    color = "Sample Size (N)"
-  ) +
-  theme_minimal() +
-  coord_cartesian(ylim = c(50, 100))
+# Use centralized plotting function from R/60_tables_and_plots.R
+print(plot_coverage_degradation(coverage_summary))
 ```
 
 **Key Observation:** Classical coverage degrades systematically with heteroskedasticity. The Reliability Score $S_{\mathrm{Rel}}$ can be mapped to this coverage loss because it is N-invariant—unlike $S_{\mathrm{Inf}}$, which conflates severity with sample size.
@@ -869,58 +676,27 @@ ggplot(coverage_summary, aes(x = hetero_strength, y = mean_coverage, color = as.
 We benchmark the detection capability of our scores against standard tests (Breusch-Pagan and White). Note: For detection (hypothesis testing), we use the Inferential Score ($S_{\mathrm{Inf}}$), which scales with $\sqrt{N}$.
 
 ```{r benchmark-tests}
-# Define benchmark subset
+# Define benchmark parameters
 N_bench <- c(100, 400, 1600)
 lambda_bench <- seq(0, 2, by = 0.2)
 n_reps_bench <- 200
 
-# Function to run benchmarks
-run_benchmark <- function(N, lambda) {
-  reps <- replicate(n_reps_bench, {
-    x <- rnorm(N)
-    var_i <- 1 + lambda * x^2
-    y <- 1 + 0.5 * x + rnorm(N, 0, sqrt(var_i))
-    fit <- lm(y ~ x)
-    
-    # Standard Tests
-    bp_pval <- lmtest::bptest(fit)$p.value
-    white_pval <- lmtest::bptest(fit, ~ x + I(x^2))$p.value
-    
-    # S_Inf Test (Manual Calculation to ensure consistency)
-    # T_SInf = sqrt(N) * (SE_Robust / SE_Classic - 1)
-    se_cls <- summary(fit)$coefficients["x", "Std. Error"]
-    se_rob <- sqrt(diag(sandwich::vcovHC(fit, type = best_hc)))["x"]
-    t_sinf <- sqrt(N) * (se_rob / se_cls - 1)
-    
-    c(
-      reject_bp = bp_pval < 0.05,
-      reject_white = white_pval < 0.05,
-      reject_sinf = t_sinf > 1.645  # One-sided test using Z-cutoff
-    )
-  })
-  rowMeans(reps)
-}
+# Use centralized pipeline function from R/10_dgp_and_fits.R
+# Note: Global seed propagates via furrr_options(seed = TRUE)
+benchmark_res <- run_benchmark_simulations(
+  N_grid = N_bench,
+  lambda_grid = lambda_bench,
+  n_reps = n_reps_bench,
+  hc_type = best_hc,
+  verbose = TRUE
+)
 
-# Run benchmark grid
-benchmark_res <- expand.grid(N = N_bench, lambda = lambda_bench)
-benchmark_res[, c("reject_bp", "reject_white", "reject_sinf")] <- NA
-
-for(i in 1:nrow(benchmark_res)) {
-  res <- run_benchmark(benchmark_res$N[i], benchmark_res$lambda[i])
-  benchmark_res[i, c("reject_bp", "reject_white", "reject_sinf")] <- res
-}
-
-# Reshape and Plot
+# Reshape for plotting
 bench_long <- melt(as.data.table(benchmark_res), id.vars = c("N", "lambda"), 
                    variable.name = "Test", value.name = "Power")
 
-ggplot(bench_long, aes(x = lambda, y = Power, color = Test)) +
-  geom_line(size = 1) +
-  facet_wrap(~N) +
-  labs(title = "Power Comparison: S_Inf vs Standard Tests",
-       subtitle = "S_Inf performs comparably to Breusch-Pagan and White tests",
-       y = "Rejection Rate (alpha=0.05)") +
-  theme_minimal()
+# Use centralized plotting function from R/60_tables_and_plots.R
+print(plot_benchmark_comparison(bench_long))
 ```
 
 **Interpretation:**
@@ -1034,21 +810,8 @@ print(universal_lookup)
 ## Visualization
 
 ```{r lookup-plot, fig.width=10, fig.height=6}
-# Plot final universal lookup
-p_lookup <- ggplot(
-  universal_lookup,
-  aes(x = coverage_gap_pct, y = universal_sr_ratio_adj)
-) +
-  geom_line(size = 1) +
-  geom_point(size = 3) +
-  labs(
-    title = sprintf("Universal %s Lookup Table", best_hc),
-    x = "Empirical Coverage Gap (%)",
-    y = "Reliability Score"
-  ) +
-  theme_minimal()
-
-print(p_lookup)
+# Use centralized plotting function from R/60_tables_and_plots.R
+print(plot_universal_lookup(universal_lookup, hc_type = best_hc))
 ```
 
 ---

@@ -432,3 +432,197 @@ plot_universal_lookup <- function(universal_lookup, hc_type = "HC2") {
   
   p
 }
+
+#' Plot inferential score distribution
+#'
+#' @param hetero_results data.table with sr_inf and hetero_strength columns
+#' @param lambda_subset Vector of lambda values to include in density plot
+#'
+#' @return arranged ggplot grid (histogram + density by lambda)
+plot_sinf_distribution <- function(hetero_results, lambda_subset = c(0, 0.5, 1.0, 1.5, 2.0)) {
+  
+  # Overall histogram
+  p1 <- ggplot(hetero_results, aes(x = sr_inf)) +
+    geom_histogram(bins = 50, fill = "steelblue", color = "white", alpha = 0.7) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+    labs(
+      title = "Distribution of Inferential Score (All Simulations)",
+      x = expression(S[Inf]),
+      y = "Count"
+    ) +
+    theme_minimal()
+  
+  # Density by lambda
+  subset_data <- hetero_results[hetero_strength %in% lambda_subset]
+  p2 <- ggplot(subset_data, aes(x = sr_inf, fill = as.factor(hetero_strength))) +
+    geom_density(alpha = 0.5) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
+    labs(
+      title = "Inferential Score by Heteroskedasticity Level",
+      x = expression(S[Inf]),
+      y = "Density",
+      fill = "Lambda"
+    ) +
+    theme_minimal()
+  
+  gridExtra::grid.arrange(p1, p2, ncol = 2)
+}
+
+#' Plot finite-sample bias under null
+#'
+#' Visualizes the relationship between 1/sqrt(N) and mean sr_ratio under null.
+#'
+#' @param null_summary data.table with N, inv_sqrt_N, mean_sr_ratio, se_sr_ratio columns
+#' @param intercept_est Estimated intercept from regression
+#' @param slope_est Estimated slope (c_empirical) from regression
+#'
+#' @return ggplot object
+plot_finite_sample_bias <- function(null_summary, intercept_est, slope_est) {
+  
+  p <- ggplot(null_summary, aes(x = inv_sqrt_N, y = mean_sr_ratio)) +
+    geom_point(size = 3, color = "steelblue") +
+    geom_errorbar(aes(ymin = mean_sr_ratio - 1.96*se_sr_ratio, 
+                      ymax = mean_sr_ratio + 1.96*se_sr_ratio), 
+                  width = 0.002, color = "steelblue") +
+    geom_abline(intercept = intercept_est, slope = slope_est, 
+                color = "red", linetype = "solid", size = 1) +
+    labs(
+      title = "Finite-Sample Bias in Raw Ratio Under Null",
+      subtitle = sprintf("Empirical fit: c = %.3f", slope_est),
+      x = expression(1/sqrt(N)),
+      y = "Mean Raw Ratio"
+    ) +
+    theme_minimal() +
+    annotate("text", x = 0.10, y = intercept_est + slope_est * 0.05, 
+             label = sprintf("c = %.3f", slope_est), color = "red", size = 5)
+  
+  p
+}
+
+#' Plot sensitivity analysis: simple vs multiple regression
+#'
+#' @param df_summary Aggregated data.table with N, model, inv_sqrt_N, mean_sr_ratio, se_sr_ratio
+#' @param c_simple Scaling factor for simple regression
+#' @param c_multiple Scaling factor for multiple regression
+#' @param intercept_simple Intercept for simple regression fit
+#' @param intercept_multiple Intercept for multiple regression fit
+#'
+#' @return ggplot object
+plot_sensitivity_comparison <- function(df_summary, c_simple, c_multiple, 
+                                         intercept_simple, intercept_multiple) {
+  
+  p <- ggplot(df_summary, aes(x = inv_sqrt_N, y = mean_sr_ratio, color = model)) +
+    geom_point(size = 3) +
+    geom_errorbar(aes(ymin = mean_sr_ratio - 1.96*se_sr_ratio, 
+                      ymax = mean_sr_ratio + 1.96*se_sr_ratio), 
+                  width = 0.003) +
+    geom_abline(intercept = intercept_simple, slope = c_simple, 
+                color = "steelblue", linetype = "solid", size = 1) +
+    geom_abline(intercept = intercept_multiple, slope = c_multiple, 
+                color = "coral", linetype = "solid", size = 1) +
+    scale_color_manual(values = c("Simple (p=2)" = "steelblue", "Multiple (p=3)" = "coral")) +
+    labs(
+      title = "Finite-Sample Bias Decreases with Model Complexity",
+      subtitle = sprintf("Simple (p=2): c = %.3f | Multiple (p=3): c = %.3f", c_simple, c_multiple),
+      x = expression(1/sqrt(N)),
+      y = "Mean Raw Ratio",
+      color = "Model"
+    ) +
+    theme_minimal() +
+    theme(legend.position = "right")
+  
+  p
+}
+
+#' Plot T_SInf vs Raw Ratio comparison
+#'
+#' Side-by-side comparison showing N-dependence of T_SInf vs near-invariance of Raw Ratio.
+#'
+#' @param comparison_summary data.table with N, hetero_strength, mean_T_sinf, mean_sr_ratio
+#'
+#' @return arranged ggplot grid
+plot_tsinf_vs_ratio <- function(comparison_summary) {
+  
+  # T_SInf (N-dependent)
+  p1 <- ggplot(comparison_summary, aes(x = N, y = mean_T_sinf, color = as.factor(hetero_strength))) +
+    geom_line(size = 0.8) +
+    geom_point(size = 1.5) +
+    scale_x_log10() +
+    scale_color_viridis_d(option = "plasma", end = 0.9) +
+    labs(
+      title = expression("Scaled Inferential Score " * T[SInf] * " vs N"),
+      subtitle = "Strong N-dependence: lines diverge with increasing N",
+      y = expression("Mean " * T[SInf]),
+      x = "N (log scale)"
+    ) +
+    theme_minimal() +
+    theme(legend.position = "none")
+  
+  # Raw Ratio (near-invariant)
+  p2 <- ggplot(comparison_summary, aes(x = N, y = mean_sr_ratio, color = as.factor(hetero_strength))) +
+    geom_line(size = 0.8) +
+    geom_point(size = 1.5) +
+    scale_x_log10() +
+    scale_color_viridis_d(option = "plasma", end = 0.9) +
+    labs(
+      title = "Raw Ratio vs N",
+      subtitle = "Much weaker N-dependence: lines remain approximately parallel",
+      y = "Mean Raw Ratio",
+      x = "N (log scale)",
+      color = expression(lambda)
+    ) +
+    theme_minimal() +
+    theme(legend.position = "right")
+  
+  gridExtra::grid.arrange(p1, p2, ncol = 2, widths = c(0.45, 0.55))
+}
+
+#' Plot scaling factor comparison (Raw vs Adjusted)
+#'
+#' @param scaling_long Melted data.table with N, hetero_strength, Metric, Value
+#'
+#' @return ggplot object with facets
+plot_scaling_comparison <- function(scaling_long) {
+  
+  p <- ggplot(scaling_long, aes(x = N, y = Value, color = as.factor(hetero_strength))) +
+    geom_line(size = 0.8) +
+    geom_point(size = 1.5) +
+    scale_x_log10() +
+    scale_color_viridis_d(option = "plasma", end = 0.9) +
+    facet_wrap(~Metric, scales = "free_y") +
+    labs(
+      title = "Comparison: Raw Ratio vs Empirically-Adjusted Reliability Score",
+      subtitle = "Flatter lines indicate better N-invariance",
+      x = "Sample Size (log scale)",
+      y = "Score Value",
+      color = expression(lambda)
+    ) +
+    theme_minimal() +
+    theme(legend.position = "bottom")
+  
+  p
+}
+
+#' Plot coverage degradation under heteroskedasticity
+#'
+#' @param coverage_summary data.table with N, hetero_strength, mean_coverage columns
+#'
+#' @return ggplot object
+plot_coverage_degradation <- function(coverage_summary) {
+  
+  p <- ggplot(coverage_summary, aes(x = hetero_strength, y = mean_coverage, color = as.factor(N))) +
+    geom_line(size = 1) +
+    geom_point(size = 2) +
+    geom_hline(yintercept = 95, linetype = "dashed", color = "gray50") +
+    labs(
+      title = "Classical CI Coverage Degradation Under Heteroskedasticity",
+      subtitle = "Coverage of classical Wald intervals (using SE_classic)",
+      x = "Heteroskedasticity Strength (lambda)",
+      y = "Coverage (%)",
+      color = "Sample Size (N)"
+    ) +
+    theme_minimal() +
+    coord_cartesian(ylim = c(50, 100))
+  
+  p
+}
