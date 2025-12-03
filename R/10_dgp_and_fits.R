@@ -137,7 +137,7 @@ fit_ols_hc <- function(X, y, hc_types = c("HC0", "HC1", "HC2", "HC3"), check_ran
 #' specified HC types in a single pass using efficient matrix operations,
 #' avoiding the overhead of `lm()` and `sandwich()`.
 #'
-#' @param n_obs The sample size (N).
+#' @param N Sample size.
 #' @param n_sims Number of simulations to run (default 1).
 #' @param hc_types A character vector of HC estimators to compute,
 #'   e.g., `c("HC1", "HC2", "HC3")`.
@@ -147,7 +147,7 @@ fit_ols_hc <- function(X, y, hc_types = c("HC0", "HC1", "HC2", "HC3"), check_ran
 #'   - hc_type: HC type ("HC1", "HC2", "HC3", etc.)
 #'   - sr_inf: unscaled inferential score (se_robust / se_classic - 1)
 #'   - sr_ratio: raw ratio (se_classic / se_robust)
-run_null_simulation_fast <- function(n_obs, n_sims = 1, hc_types = c("HC1", "HC2", "HC3")) {
+run_null_simulation_fast <- function(N, n_sims = 1, hc_types = c("HC1", "HC2", "HC3")) {
   
   n_types <- length(hc_types)
   total_rows <- n_sims * n_types
@@ -160,11 +160,11 @@ run_null_simulation_fast <- function(n_obs, n_sims = 1, hc_types = c("HC1", "HC2
   
   idx_counter <- 1L
   k <- 2L # Intercept + Slope
-  df <- n_obs - k
+  df <- N - k
   
   for (s in seq_len(n_sims)) {
     # 1. DGP - Use canonical function
-    d <- simulate_homoskedastic_dgp(n_obs)
+    d <- simulate_homoskedastic_dgp(N)
     X <- cbind(1, d$x)
     y <- d$y
     
@@ -194,7 +194,7 @@ run_null_simulation_fast <- function(n_obs, n_sims = 1, hc_types = c("HC1", "HC2
       if (h_type == "HC0") {
         u_sq <- resid^2
       } else if (h_type == "HC1") {
-        u_sq <- (n_obs / df) * resid^2
+        u_sq <- (N / df) * resid^2
       } else if (h_type == "HC2") {
         u_sq <- resid^2 / (1 - h)
       } else if (h_type == "HC3") {
@@ -297,26 +297,26 @@ run_hetero_simulation_fast <- function(N, hetero_strength, hc_type = "HC2", beta
 #' Used for sensitivity analysis comparing simple vs multiple regression
 #' finite-sample bias behavior.
 #'
-#' @param n_obs The sample size (N).
+#' @param N Sample size.
 #' @param n_sims Number of simulations to run (default 1).
 #' @param hc_type HC estimator type (default "HC2").
 #'
 #' @return A data.table with one row per simulation, containing:
 #'   - sim_id: simulation index (1 to n_sims)
 #'   - sr_ratio: raw ratio (se_classic / se_robust) for x coefficient
-run_null_simulation_fast_multiple <- function(n_obs, n_sims = 1, hc_type = "HC2") {
+run_null_simulation_fast_multiple <- function(N, n_sims = 1, hc_type = "HC2") {
   
   # Pre-allocate vectors
   res_sr_ratio <- numeric(n_sims)
   
   k <- 3L  # Intercept + x + z
-  df <- n_obs - k
+  df <- N - k
   
   for (s in seq_len(n_sims)) {
     # DGP: y ~ x + z (homoskedastic null)
-    x <- rnorm(n_obs)
-    z <- rnorm(n_obs)
-    y <- 1 + 0.5 * x + 0.3 * z + rnorm(n_obs)  # Homoskedastic
+    x <- rnorm(N)
+    z <- rnorm(N)
+    y <- 1 + 0.5 * x + 0.3 * z + rnorm(N)  # Homoskedastic
     
     X <- cbind(1, x, z)
     
@@ -341,7 +341,7 @@ run_null_simulation_fast_multiple <- function(n_obs, n_sims = 1, hc_type = "HC2"
     if (hc_type == "HC2") {
       u_sq <- resid^2 / (1 - h)
     } else if (hc_type == "HC1") {
-      u_sq <- (n_obs / df) * resid^2
+      u_sq <- (N / df) * resid^2
     } else if (hc_type == "HC3") {
       u_sq <- resid^2 / ((1 - h)^2)
     } else {
@@ -387,11 +387,11 @@ run_sensitivity_analysis <- function(N_grid, n_sims = 10000, hc_type = "HC2", ve
     if (verbose) cat(sprintf("  Processing N = %d...\n", N))
     
     # Simple regression (p = 2)
-    simple_res <- run_null_simulation_fast(n_obs = N, n_sims = n_sims, hc_types = hc_type)
+    simple_res <- run_null_simulation_fast(N = N, n_sims = n_sims, hc_types = hc_type)
     simple_res[, `:=`(N = N, model = "Simple (p=2)", inv_sqrt_N = 1/sqrt(N))]
     
     # Multiple regression (p = 3)
-    multiple_res <- run_null_simulation_fast_multiple(n_obs = N, n_sims = n_sims, hc_type = hc_type)
+    multiple_res <- run_null_simulation_fast_multiple(N = N, n_sims = n_sims, hc_type = hc_type)
     multiple_res[, `:=`(N = N, model = "Multiple (p=3)", inv_sqrt_N = 1/sqrt(N))]
     
     results_list[[length(results_list) + 1]] <- simple_res[, .(N, model, sr_ratio, inv_sqrt_N)]
