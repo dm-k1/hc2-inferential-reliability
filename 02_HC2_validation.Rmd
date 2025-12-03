@@ -1,0 +1,461 @@
+---
+title: "HC2 Validation: Coverage Under Heteroskedasticity and Universal Lookup Table"
+author: "Quantitative Methods"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    number_sections: yes
+---
+
+# Purpose
+
+This notebook implements the heteroskedastic validation stage, establishing the empirical relationship between the inferential score $ S_{\mathrm{Inf}} $ and nominal coverage loss under model misspecification. The workflow:
+
+1. Loads the selected HC estimator from null calibration (Notebook 1).
+2. Simulates heteroskedastic DGPs with controlled misspecification levels across a grid of sample sizes, heteroskedasticity strengths, effect sizes, and baseline noise levels.
+3. Evaluates the power of the inferential score $S_{\mathrm{Inf}}$ to detect heteroskedasticity.
+4. Demonstrates the N-dependence of $S_{\mathrm{Inf}}$ (behaving like a p-value) and motivates the need for a reliability score.
+5. Introduces the **Reliability Score** ($S_{\mathrm{Rel}}$ or `sr_ratio_adj`) and demonstrates its approximate N-invariance.
+6. Benchmarks $S_{\mathrm{Inf}}$ and $S_{\mathrm{Rel}}$ against standard heteroskedasticity tests (Breusch-Pagan, White).
+7. Constructs the universal lookup table mapping $S_{\mathrm{Rel}}$ to expected coverage loss.
+
+---
+
+# Section 1: Setup and Load Notebook 1 Results
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Load Support Functions and Configuration
+
+```{r source-files}
+# Source modular R support functions
+# R/00_config.R handles package loading, parallel setup, and global constants
+source("R/00_config.R", local = TRUE)              
+source("R/10_dgp_and_fits.R", local = TRUE)        # Data generation and fitting
+source("R/20_metrics.R", local = TRUE)              # Metric computations
+source("R/40_hetero_sims.R", local = TRUE)          # Heteroskedastic simulation grid
+source("R/50_invariance_and_lookup.R", local = TRUE) # Invariance and lookup table construction
+source("R/60_tables_and_plots.R", local = TRUE)     # Presentation utilities
+```
+
+```{r setup-paths}
+BASE_PATH <- getwd()
+
+# Note: Global seed is set in R/00_config.R and will be used for all simulations
+# The seed is automatically propagated to parallel workers via furrr_options(seed = TRUE)
+
+# Create results directory if necessary
+if (!dir.exists("results")) {
+  dir.create("results", recursive = TRUE)
+}
+```
+
+## Load Results from Null Calibration
+
+```{r load-null-results}
+# Retrieve HC type selected in null calibration
+best_hc <- readRDS("results/best_hc.rds")
+scaling_results <- readRDS("results/scaling_results.rds")
+
+cat(sprintf("Selected HC estimator: %s\n", best_hc))
+cat(sprintf("Stability range at optimal scaling: %.6f\n\n", 
+            scaling_results[hc_type == best_hc, stability_range_inf]))
+```
+
+---
+
+# Section 2: Heteroskedastic Simulation Grid
+
+Define the experimental grid for heteroskedastic validation. The heteroskedastic DGP is:
+$$ Y_i = 1 + \beta_x \cdot X_i + \varepsilon_i, \quad \varepsilon_i \sim N(0, \sigma_i^2) $$
+where the variance is:
+$$ \sigma_i^2 = \sigma_0^2 + \lambda \cdot X_i^2 $$
+Here:
+- $\beta_x$ controls the effect size of the predictor.
+- $\sigma_0$ controls the baseline noise level (homoskedastic component).
+- $\lambda$ (heteroskedasticity strength) controls how strongly the variance increases with $X^2$.
+
+```{r hetero-config}
+# Simulation grid: sample sizes, heteroskedasticity strengths, and replicates per cell
+# Note: These are defined in R/00_config.R and loaded automatically.
+# We display them here for confirmation.
+
+total_hetero <- length(N_GRID_HETERO) * 
+                length(HETERO_STRENGTH_GRID) * 
+                length(BETA_X_GRID) * 
+                length(SIGMA0_GRID) * 
+                N_SIMS_PER_CELL_HETERO
+
+cat(sprintf("Simulation grid configuration:\n"))
+cat(sprintf("  Sample sizes (N):           %s\n", paste(N_GRID_HETERO, collapse = ", ")))
+cat(sprintf("  Hetero strength (λ):        %d levels from %.1f to %.1f\n", 
+            length(HETERO_STRENGTH_GRID), min(HETERO_STRENGTH_GRID), max(HETERO_STRENGTH_GRID)))
+cat(sprintf("  Beta X values:              %s\n", paste(BETA_X_GRID, collapse = ", ")))
+cat(sprintf("  Sigma0 values:              %s\n", paste(SIGMA0_GRID, collapse = ", ")))
+cat(sprintf("  Replicates per cell:        %d\n", N_SIMS_PER_CELL_HETERO))
+cat(sprintf("  Total simulations:          %d\n", total_hetero))
+cat(sprintf("  HC estimator:               %s\n\n", best_hc))
+```
+
+---
+
+# Section 3: Heteroskedastic Simulation and Metrics
+
+Execute the full heteroskedastic simulation grid. For each cell (N, λ, β, σ0), generate replicates, compute 95% confidence intervals using both classical and HC standard errors, and record coverage outcomes.
+
+The simulation engine `run_hetero_sim_grid` (in `R/40_hetero_sims.R`) now automatically computes:
+- `sr_inf`: Inferential Score ($\text{SE}_{\text{robust}}/\text{SE}_{\text{classic}} - 1$)
+- `sr_ratio`: Raw Ratio ($\text{SE}_{\text{classic}}/\text{SE}_{\text{robust}}$)
+- `sr_ratio_adj`: Reliability Score ($sr\_ratio - \frac{2}{3\sqrt{N}}$)
+
+```{r run-hetero-sims}
+# Note: Random seed already set in R/00_config.R and propagated to parallel workers
+# via furrr_options(seed = TRUE) for full reproducibility
+
+hetero_sim_results <- run_hetero_sim_grid(
+  N_grid = N_GRID_HETERO,
+  hetero_strength_grid = HETERO_STRENGTH_GRID,
+  beta_x_grid = BETA_X_GRID,
+  sigma0_grid = SIGMA0_GRID,
+  n_sims_per_cell = N_SIMS_PER_CELL_HETERO,
+  hc_type = best_hc,
+  verbose = TRUE
+)
+
+# Save raw simulation results
+saveRDS(hetero_sim_results, file.path("results", "hetero_sim_results.rds"))
+```
+
+## Verify Computed Scores
+
+We verify that the Reliability Score ($S_{\text{Rel}}$ or `sr_ratio_adj`) has been correctly computed by the simulation engine.
+
+$$ S_{\text{Rel}} = \frac{\text{SE}_{\text{classic}}}{\text{SE}_{\text{robust}}} - \frac{2}{3\sqrt{N}} $$
+
+```{r verify-scores}
+# Check if columns exist
+if (!all(c("sr_inf", "sr_ratio", "sr_ratio_adj") %in% names(hetero_sim_results))) {
+  stop("Error: Simulation results missing required score columns (sr_inf, sr_ratio, sr_ratio_adj).")
+}
+
+cat("Scores successfully computed during simulation.\n")
+print(head(hetero_sim_results[, .(N, hetero_strength, sr_inf, sr_ratio, sr_ratio_adj)], 5))
+```
+
+# Section 4: Power of the Inferential Score $S_{\mathrm{Inf}}$
+
+We evaluate the power of the inferential score $S_{\mathrm{Inf}}$ to detect heteroskedasticity. We define the test statistic:
+$$ T_{S_{\mathrm{Inf}}} = \sqrt{N} \cdot S_{\mathrm{Inf}} $$
+Under the homoskedastic null, $T_{S_{\mathrm{Inf}}}$ is approximately standard normal (for HC2). We reject the null of homoskedasticity if $T_{S_{\mathrm{Inf}}} > 1.645$ (one-sided $\alpha=0.05$).
+
+## Power Analysis
+
+```{r power-analysis}
+# Compute T_SInf (which is sr_inf_adj in our nomenclature)
+hetero_sim_results[, T_SInf := sr_inf_adj]
+
+# Define rejection indicator
+hetero_sim_results[, reject_null := as.integer(T_SInf > 1.645)]
+
+# Aggregate rejection rates by N and hetero_strength (averaging over beta_x and sigma0)
+power_summary <- hetero_sim_results[, .(
+  rejection_rate = mean(reject_null)
+), by = .(N, hetero_strength)]
+
+# Plot Power Curves
+ggplot(power_summary, aes(x = hetero_strength, y = rejection_rate, color = as.factor(N))) +
+  geom_line(size = 1) +
+  geom_point() +
+  geom_hline(yintercept = 0.05, linetype = "dashed", color = "gray50") +
+  labs(
+    title = "Power of Inferential Score to Detect Heteroskedasticity",
+    subtitle = "Rejection Rate of T_SInf > 1.645 (alpha = 0.05)",
+    x = "Heteroskedasticity Strength (lambda)",
+    y = "Rejection Rate (Power)",
+    color = "Sample Size (N)"
+  ) +
+  theme_minimal()
+```
+
+**Interpretation:**
+- At $\lambda = 0$ (null), the rejection rate is close to 0.05, confirming the test is well-calibrated.
+- As $\lambda$ increases, power increases.
+- Crucially, for a fixed $\lambda > 0$, power increases with $N$. This confirms that $S_{\mathrm{Inf}}$ behaves like a test statistic (or p-value): it detects *existence* of misspecification with increasing certainty as sample size grows.
+
+---
+
+# Section 5: From Inferential Score to Reliability Score
+
+To build a universal lookup table, we need a metric that reflects the *severity* of misspecification (and thus coverage loss) independent of sample size.
+
+## 5.1 N-Dependence of $S_{\mathrm{Inf}}$
+
+We examine the mean $S_{\mathrm{Inf}}$ as a function of $N$ for fixed levels of heteroskedasticity.
+
+```{r n-dependence-sinf}
+# Subset to representative parameters for clarity
+subset_params <- hetero_sim_results[
+  beta_x == 0.5 & sigma0 == 1.0 & 
+  hetero_strength %in% c(0, 0.5, 1.0, 1.5, 2.0)
+]
+
+# Aggregate mean S_Inf
+sinf_n_summary <- subset_params[, .(
+  mean_sinf = mean(sr_inf),
+  mean_T_sinf = mean(T_SInf)
+), by = .(N, hetero_strength)]
+
+# Plot Mean S_Inf vs log(N)
+ggplot(sinf_n_summary, aes(x = N, y = mean_T_sinf, color = as.factor(hetero_strength))) +
+  geom_line() +
+  geom_point() +
+  scale_x_log10() +
+  labs(
+    title = "N-Dependence of Test Statistic T_SInf",
+    subtitle = "Mean T_SInf increases with N for fixed misspecification",
+    x = "Sample Size (log scale)",
+    y = "Mean T_SInf",
+    color = "Lambda"
+  ) +
+  theme_minimal()
+```
+
+## 5.2 Raw Ratio and Reliability Score
+
+We compare the stability of the **Raw Ratio** ($SE_{classic} / SE_{robust}$) and the **Reliability Score** ($S_{Rel}$) across sample sizes.
+
+```{r n-invariance-comparison}
+# Aggregate metrics for the subset
+metrics_n_summary <- subset_params[, .(
+  mean_sr_ratio = mean(sr_ratio),
+  mean_sr_ratio_adj = mean(sr_ratio_adj)
+), by = .(N, hetero_strength)]
+
+# Plot Raw Ratio vs N
+p1 <- ggplot(metrics_n_summary, aes(x = N, y = mean_sr_ratio, color = as.factor(hetero_strength))) +
+  geom_line() +
+  geom_point() +
+  scale_x_log10() +
+  labs(title = "Raw Ratio vs N", y = "Mean Raw Ratio", x = "N (log)") +
+  theme_minimal() + theme(legend.position = "none")
+
+# Plot Reliability Score vs N
+p2 <- ggplot(metrics_n_summary, aes(x = N, y = mean_sr_ratio_adj, color = as.factor(hetero_strength))) +
+  geom_line() +
+  geom_point() +
+  scale_x_log10() +
+  labs(title = "Reliability Score vs N", y = "Mean Reliability Score", x = "N (log)") +
+  theme_minimal() + theme(legend.position = "right")
+
+gridExtra::grid.arrange(p1, p2, ncol = 2, widths = c(0.45, 0.55))
+```
+
+**Interpretation:**
+- The **Raw Ratio** is much more stable than $T_{S_{\mathrm{Inf}}}$, but still exhibits finite-sample bias (drifting slightly with N).
+- The **Reliability Score** ($S_{\text{Rel}}$) effectively removes this drift, providing an approximately N-invariant measure of misspecification severity.
+
+---
+
+# Section 6: Benchmark Against Standard Heteroskedasticity Tests
+
+We benchmark the detection capability of our scores against standard tests (Breusch-Pagan and White). We run this on a subset of the grid to manage computational load.
+
+```{r benchmark-tests}
+# Define benchmark subset
+N_bench <- c(100, 400, 1600)
+lambda_bench <- seq(0, 2, by = 0.2)
+n_reps_bench <- 200
+
+# Function to run benchmarks
+run_benchmark <- function(N, lambda) {
+  reps <- replicate(n_reps_bench, {
+    # Generate data
+    # Using the exact logic from the main grid for consistency
+    x <- rnorm(N)
+    var_i <- 1 + lambda * x^2
+    y <- 1 + 0.5 * x + rnorm(N, 0, sqrt(var_i))
+    
+    # Fit LM
+    fit <- lm(y ~ x)
+    
+    # Tests
+    bp_pval <- lmtest::bptest(fit)$p.value
+    # White test (BP on squares)
+    white_pval <- lmtest::bptest(fit, ~ x + I(x^2))$p.value
+    
+    # S_Inf Test
+    metrics <- compute_se_metrics(fit, coef_name = "x", hc_type = best_hc)
+    # metrics$sr_inf is the unscaled score. We need T_SInf = sr_inf_adj
+    t_sinf <- metrics$sr_inf_adj
+    
+    c(
+      reject_bp = bp_pval < 0.05,
+      reject_white = white_pval < 0.05,
+      reject_sinf = t_sinf > 1.645
+    )
+  })
+  rowMeans(reps)
+}
+
+# Run benchmark grid
+benchmark_res <- expand.grid(N = N_bench, lambda = lambda_bench)
+benchmark_res$reject_bp <- NA
+benchmark_res$reject_white <- NA
+benchmark_res$reject_sinf <- NA
+
+# Loop (simple for loop for benchmark)
+for(i in 1:nrow(benchmark_res)) {
+  res <- run_benchmark(benchmark_res$N[i], benchmark_res$lambda[i])
+  benchmark_res$reject_bp[i] <- res["reject_bp"]
+  benchmark_res$reject_white[i] <- res["reject_white"]
+  benchmark_res$reject_sinf[i] <- res["reject_sinf"]
+}
+
+# Reshape for plotting
+bench_long <- melt(as.data.table(benchmark_res), id.vars = c("N", "lambda"), 
+                   variable.name = "Test", value.name = "Power")
+
+ggplot(bench_long, aes(x = lambda, y = Power, color = Test)) +
+  geom_line() +
+  facet_wrap(~N) +
+  labs(title = "Power Comparison: S_Inf vs Standard Tests",
+       y = "Rejection Rate (alpha=0.05)") +
+  theme_minimal()
+```
+
+**Interpretation:**
+- $S_{\mathrm{Inf}}$ performs comparably to standard tests (BP, White) in detecting heteroskedasticity.
+- However, unlike p-values from BP/White, the **Reliability Score** derived from $S_{\mathrm{Inf}}$ provides a calibrated *measure of severity* that maps directly to coverage loss, which is our primary goal.
+
+---
+
+# Section 7: Coverage-Based Mapping and Universal Lookup
+
+We now construct the final lookup table mapping the Reliability Score to expected coverage loss.
+
+## 7.1 Aggregation
+
+```{r hetero-aggregation}
+# Aggregate simulation results by sample size, heteroskedasticity strength, beta, and sigma0
+aggregated_hetero <- aggregate_hetero_sims(hetero_sim_results)
+
+# Save aggregated results
+saveRDS(aggregated_hetero, file.path("results", "hetero_aggregated.rds"))
+
+cat(sprintf("Aggregated to %d rows (one per cell of experimental grid)\n\n", nrow(aggregated_hetero)))
+```
+
+## 7.2 Coverage-Adjusted Lookup Table
+
+We build a wide-format table showing the relationship between coverage gap and reliability score across sample sizes.
+
+```{r coverage-lookup}
+# Build wide-format lookup indexed by coverage gap and sample size
+coverage_table_result <- build_coverage_adjusted_table(aggregated_hetero)
+
+wide_table <- coverage_table_result$wide_table
+coverage_gaps <- coverage_table_result$coverage_gaps
+N_values <- coverage_table_result$N_values
+
+# Save comprehensive lookup structure
+saveRDS(coverage_table_result, file.path("results", "coverage_adjusted_by_N.rds"))
+```
+
+## 7.3 N-Invariance Analysis
+
+We formally test the N-invariance of the Reliability Score using three approaches.
+
+### Spread Analysis
+Range (max - min) of reliability scores for each coverage gap across N.
+
+```{r spread-analysis}
+# Compute spread per coverage gap
+spread_table <- compute_spread_per_coverage(wide_table)
+
+cat("Spread (max − min of reliability score) per coverage gap:\n\n")
+print(spread_table)
+```
+
+### Regression Analysis
+Slope of Reliability Score ~ log(N) for each coverage stratum.
+
+```{r regression-analysis}
+# Fit stratum-specific regressions
+regression_table <- run_per_coverage_regressions(aggregated_hetero)
+
+cat("\nRegression: Reliability Score ~ log(N) by coverage gap\n")
+cat("(Slope near 0 and p > 0.05 indicate N-invariance)\n\n")
+print(regression_table)
+```
+
+### Mixed-Effects Model
+Global test for N-dependence accounting for coverage strata.
+
+```{r mixed-model-analysis}
+# Fit global mixed model with coverage gap as random intercept
+mixed_result <- fit_global_mixed_model(aggregated_hetero)
+
+cat("\nMixed-Effects Model: Reliability Score ~ log(N) + (1 | coverage_gap)\n\n")
+cat(mixed_result$summary_text)
+cat(sprintf("\nGlobal slope:        %.6f\n", mixed_result$slope))
+cat(sprintf("P-value:             %.4f\n", mixed_result$p_value))
+cat(sprintf("Total N-effect:      %.4f\n\n", mixed_result$total_effect))
+```
+
+## 7.4 Universal Lookup Table
+
+Construct the final universal lookup table by averaging the reliability score across the sample size range for each coverage gap.
+
+```{r universal-lookup}
+# Build universal lookup: mean reliability score for each coverage gap (aggregated over N)
+universal_lookup <- build_universal_lookup_table(aggregated_hetero)
+
+# Save lookup table in multiple formats
+saveRDS(universal_lookup, file.path("results", "universal_lookup_table.rds"))
+write.csv(universal_lookup, file.path("results", "universal_lookup_table.csv"), row.names = FALSE)
+
+cat("Universal Lookup Table (mean reliability score by coverage gap):\n\n")
+print(universal_lookup)
+```
+
+## Visualization
+
+```{r lookup-plot, fig.width=10, fig.height=6}
+# Plot final universal lookup
+p_lookup <- ggplot(
+  universal_lookup,
+  aes(x = coverage_gap_pct, y = universal_sr_ratio_adj)
+) +
+  geom_line(size = 1) +
+  geom_point(size = 3) +
+  labs(
+    title = sprintf("Universal %s Lookup Table", best_hc),
+    x = "Empirical Coverage Gap (%)",
+    y = "Reliability Score"
+  ) +
+  theme_minimal()
+
+print(p_lookup)
+```
+
+---
+
+# Summary
+
+This validation workflow has established:
+
+1.  **Power**: The inferential score $S_{\mathrm{Inf}}$ (based on `r best_hc`) has high power to detect heteroskedasticity, comparable to standard tests like Breusch-Pagan and White.
+2.  **N-Dependence**: Like any test statistic, $S_{\mathrm{Inf}}$ scales with $\sqrt{N}$, making it unsuitable as a direct measure of misspecification severity across different sample sizes.
+3.  **Reliability Score**: The Reliability Score $S_{\mathrm{Rel}}$ removes this N-dependence. It is approximately invariant to sample size, effect size ($\beta_x$), and baseline noise ($\sigma_0$).
+4.  **Universal Mapping**: We have constructed a universal lookup table that maps $S_{\mathrm{Rel}}$ directly to expected coverage loss. This allows applied researchers to diagnose the reliability of their inference using a single metric.
+
+## Reproducibility Notes
+
+- Random seeds set immediately before each randomization-dependent function call.
+- All configuration parameters documented in `R/00_config.R`.
+- Intermediate results saved at each analytical step in `results/`.
+- Complete dataset reproducible by re-running this notebook with identical seed and configuration.

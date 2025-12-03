@@ -1,0 +1,40 @@
+# R and RStudio
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+
+# Compiled outputs
+*.html
+*.pdf
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Temporary files
+*.swp
+*.swo
+*~
+.#*
+
+# R package checks
+*.Rcheck/
+
+# Large result files (optional - uncomment if results are too large for GitHub)
+# results/*.rds
+# results/*.RData
+
+# Keep results directory structure but ignore large files over 50MB
+results/*.rds
+results/*.RData
+
+# Keep CSV and small files
+!results/*.csv
+!results/*.txt
+
+# IDE files
+.vscode/
+.idea/
