@@ -1,0 +1,530 @@
+## ============================================================
+## 10_dgp_and_fits.R
+##
+## Purpose:
+##   - Data Generating Process (DGP) for homoskedastic null data
+##   - Optimized matrix-based simulation for null calibration
+##   - Core OLS + HC engine (fit_ols_hc)
+##
+## Model Assumptions:
+##   - Linear model y = X beta + epsilon
+##   - X must include an intercept (column of 1s)
+##   - n > k and X must be full rank (unless check_rank=FALSE)
+## ============================================================
+
+#' Simulate homoskedastic data under the true null
+#'
+#' Generates independent normal data for X and Y.
+#'
+#' @param N Sample size.
+#' @return A data.frame with columns 'x' and 'y'.
+simulate_homoskedastic_dgp <- function(N) {
+  data.frame(
+    x = rnorm(N),
+    y = rnorm(N)
+  )
+}
+
+#' Simulate heteroskedastic data (Quadratic Variance)
+#'
+#' Generates data where the error variance is a quadratic function of X.
+#' Formula: sigma^2 = sigma0^2 + lambda * x^2
+#'
+#' @param N Sample size
+#' @param beta_x True coefficient for x
+#' @param hetero_strength Strength of heteroskedasticity (lambda)
+#' @param sigma0 Baseline noise level
+#' @return A data.frame with columns 'x' and 'y'
+simulate_heteroskedastic_dgp <- function(N, beta_x = 0.5, hetero_strength = 1, sigma0 = 1.0) {
+  x <- rnorm(N)
+  # Variance is a function of x
+  error_variance <- sigma0^2 + hetero_strength * x^2
+  u <- rnorm(N, mean = 0, sd = sqrt(error_variance))
+  y <- 1 + beta_x * x + u
+  data.frame(x = x, y = y)
+}
+
+#' Core OLS and HC Estimator Engine
+#'
+#' Computes OLS coefficients, classic standard errors, and HC0-HC3
+#' robust standard errors using optimized matrix algebra.
+#'
+#' Implementation details:
+#'   1. Cholesky decomposition: R = chol(X'X)
+#'   2. Inversion: (X'X)^{-1} = chol2inv(R)
+#'   3. Coefficients: beta = (X'X)^{-1} X'y via backsolve/forwardsolve
+#'   4. HC covariances: sandwich form (X'X)^{-1} X' Omega X (X'X)^{-1}
+#'
+#' Validated against lm() + vcovHC() in 00_HC_estimators_validation.Rmd.
+#'
+#' @param X Numeric matrix (n x k). Must include intercept column.
+#' @param y Numeric vector (n).
+#' @param hc_types Character vector of HC types to compute ("HC0", "HC1", "HC2", "HC3").
+#' @param check_rank Logical. If TRUE (default), checks for rank deficiency and
+#'   stops with an informative error if X is not full rank. If FALSE, proceeds
+#'   without checking (use only when rank is guaranteed by construction).
+#'
+#' @return A list containing:
+#'   - beta: coefficient vector
+#'   - vcov_classic: classic (homoskedastic) covariance matrix
+#'   - se_classic: classic standard errors
+#'   - vcov_robust: named list of HC covariance matrices
+#'   - se_robust: named list of HC standard error vectors
+#'   - residuals: OLS residuals
+#'   - leverage: diagonal of hat matrix (h_ii)
+fit_ols_hc <- function(X, y, hc_types = c("HC0", "HC1", "HC2", "HC3"), check_rank = TRUE) {
+  n <- nrow(X)
+  k <- ncol(X)
+  
+  if (check_rank) {
+    if (qr(X)$rank < k) {
+      stop("X is rank-deficient; OLS/HC not defined.")
+    }
+  }
+  
+  # OLS core via Cholesky
+  XtX <- crossprod(X)         # k x k SPD
+  R   <- chol(XtX)            # upper triangular, XtX = R'R
+  XtX_inv <- chol2inv(R)      # (X'X)^(-1)
+  
+  xty  <- crossprod(X, y)     # X'y
+  beta <- backsolve(R, forwardsolve(t(R), xty))
+  
+  resid <- as.vector(y - X %*% beta)
+  sigma2 <- sum(resid^2) / (n - k)
+  vcov_classic <- sigma2 * XtX_inv
+  se_classic   <- sqrt(diag(vcov_classic))
+  
+  # leverage
+  X_XtXinv <- X %*% XtX_inv
+  h <- rowSums(X_XtXinv * X)
+  
+  # robust covariances
+  vcov_robust_list <- list()
+  se_robust_list   <- list()
+  
+  for (hc in hc_types) {
+    u_sq <- switch(
+      hc,
+      "HC0" = resid^2,
+      "HC1" = (n / (n - k)) * resid^2,
+      "HC2" = resid^2 / (1 - h),
+      "HC3" = resid^2 / ((1 - h)^2),
+      stop(paste("Unsupported HC type:", hc))
+    )
+    Xw   <- X * sqrt(u_sq)
+    meat <- crossprod(Xw)
+    vcov_hc <- XtX_inv %*% meat %*% XtX_inv
+    vcov_robust_list[[hc]] <- vcov_hc
+    se_robust_list[[hc]]   <- sqrt(diag(vcov_hc))
+  }
+  
+  list(
+    beta         = as.vector(beta),
+    vcov_classic = vcov_classic,
+    se_classic   = se_classic,
+    vcov_robust  = vcov_robust_list,
+    se_robust    = se_robust_list,
+    residuals    = resid,
+    leverage     = h
+  )
+}
+
+#' Optimized Null Simulation using Matrix Algebra
+#'
+#' Replicates the logic from `ratio hc*.ipynb` notebooks for fast simulation.
+#' This function generates data, fits a model, and computes metrics for all
+#' specified HC types in a single pass using efficient matrix operations,
+#' avoiding the overhead of `lm()` and `sandwich()`.
+#'
+#' @param N Sample size.
+#' @param n_sims Number of simulations to run (default 1).
+#' @param hc_types A character vector of HC estimators to compute,
+#'   e.g., `c("HC1", "HC2", "HC3")`.
+#'
+#' @return A `data.table` with one row per HC type per simulation, containing:
+#'   - sim_id: simulation index (1 to n_sims)
+#'   - hc_type: HC type ("HC1", "HC2", "HC3", etc.)
+#'   - sr_inf: unscaled inferential score (se_robust / se_classic - 1)
+#'   - sr_ratio: raw ratio (se_classic / se_robust)
+run_null_simulation_fast <- function(N, n_sims = 1, hc_types = c("HC1", "HC2", "HC3")) {
+  
+  n_types <- length(hc_types)
+  total_rows <- n_sims * n_types
+  
+  # Pre-allocate vectors for speed
+  res_hc_type <- character(total_rows)
+  res_sr_inf <- numeric(total_rows)
+  res_sr_ratio <- numeric(total_rows)
+  res_sim_id <- integer(total_rows)
+  
+  idx_counter <- 1L
+  k <- 2L # Intercept + Slope
+  df <- N - k
+  
+  for (s in seq_len(n_sims)) {
+    # 1. DGP - Use canonical function
+    d <- simulate_homoskedastic_dgp(N)
+    X <- cbind(1, d$x)
+    y <- d$y
+    
+    # 2. OLS Core (Inlined for speed)
+    # Deterministic failure: if chol() fails, let it error (numerical safety)
+    XtX <- crossprod(X)
+    R <- chol(XtX)                # k x k upper triangular, errors if not SPD
+    XtX_inv <- chol2inv(R)
+    
+    beta <- XtX_inv %*% crossprod(X, y)
+    resid <- as.vector(y - X %*% beta)
+    sigma2 <- sum(resid^2) / df
+    
+    # Classic SE for slope (index 2)
+    se_classic_x <- sqrt(sigma2 * XtX_inv[2, 2])
+    
+    # Leverage for HC
+    # M = X %*% XtX_inv. We need M[,2] for slope variance and rows for leverage.
+    M <- X %*% XtX_inv
+    h <- rowSums(M * X)
+    
+    # Pre-compute M[,2]^2 for robust variance
+    M2_sq <- M[, 2]^2
+    
+    for (h_type in hc_types) {
+      # Compute u_sq based on HC type
+      if (h_type == "HC0") {
+        u_sq <- resid^2
+      } else if (h_type == "HC1") {
+        u_sq <- (N / df) * resid^2
+      } else if (h_type == "HC2") {
+        u_sq <- resid^2 / (1 - h)
+      } else if (h_type == "HC3") {
+        u_sq <- resid^2 / ((1 - h)^2)
+      } else {
+        stop("Unsupported HC type")
+      }
+      
+      # Robust SE for slope: sqrt( sum( M[,2]^2 * u_sq ) )
+      se_robust_x <- sqrt(sum(M2_sq * u_sq))
+      
+      # Store results
+      res_hc_type[idx_counter] <- h_type
+      res_sr_inf[idx_counter] <- (se_robust_x / se_classic_x) - 1
+      res_sr_ratio[idx_counter] <- se_classic_x / se_robust_x
+      res_sim_id[idx_counter] <- s
+      
+      idx_counter <- idx_counter + 1L
+    }
+  }
+  
+  data.table(
+    sim_id = res_sim_id,
+    hc_type = res_hc_type,
+    sr_inf = res_sr_inf,
+    sr_ratio = res_sr_ratio
+  )
+}
+
+#' Optimized Heteroskedastic Simulation using Matrix Algebra
+#'
+#' Generates heteroskedastic data, fits OLS, and computes coverage and scores.
+#' Coverage is computed for the CLASSICAL confidence interval (using se_classic),
+#' measuring how much classical inference "breaks" under heteroskedasticity.
+#'
+#' @param N Sample size
+#' @param hetero_strength Strength of heteroskedasticity (lambda in quadratic variance)
+#' @param hc_type Robust SE type (default "HC2")
+#' @param beta_x True coefficient for x (default 0.5)
+#' @param sigma0 Baseline homoskedastic noise SD (default 1.0)
+#' @param conf_level Confidence level (default 0.95)
+#'
+#' @return A data.table with:
+#'   - se_classic, se_robust: standard errors
+#'   - sr_inf: Inferential Score (SE_robust/SE_classic - 1)
+#'   - sr_inf_adj: Scaled Inferential Score (sqrt(N) * sr_inf)
+#'   - coverage: 1 if true beta_x is in classical CI (using se_classic), 0 otherwise
+#'
+#' Note: Ratio metrics (sr_ratio, sr_ratio_adj / Reliability Score) are NOT computed
+#' here. They are derived post-hoc in Section 5 after establishing N-dependence
+#' of the inferential score.
+run_hetero_simulation_fast <- function(N, hetero_strength, hc_type = "HC2", beta_x = 0.5, sigma0 = 1.0, conf_level = 0.95) {
+  
+  # 1. DGP - Use the canonical function
+  d <- simulate_heteroskedastic_dgp(N, beta_x = beta_x, hetero_strength = hetero_strength, sigma0 = sigma0)
+  
+  X <- cbind(1, d$x)
+  y <- d$y
+  
+  # 2. Fit using core engine
+  # check_rank=FALSE: DGP guarantees full rank (intercept + single N(0,1) regressor)
+  fit <- fit_ols_hc(X, y, hc_types = hc_type, check_rank = FALSE)
+  idx <- 2L  # slope for x
+  
+  beta_hat   <- fit$beta[idx]
+  se_classic <- fit$se_classic[idx]
+  se_robust  <- fit$se_robust[[hc_type]][idx]
+  
+  # 3. Compute Metrics
+  # Classical CI coverage: measures how much classical inference degrades
+  # under heteroskedasticity. This is the coverage gap we care about.
+  df <- N - ncol(X)
+  alpha <- 1 - conf_level
+  crit_val <- qt(1 - alpha / 2, df = df)
+  
+  # Classical confidence interval (using se_classic, not se_robust)
+  ci_lower <- beta_hat - crit_val * se_classic
+  ci_upper <- beta_hat + crit_val * se_classic
+  coverage <- (beta_x >= ci_lower) & (beta_x <= ci_upper)  # classical CI coverage
+  
+  # Scores: Only compute inferential scores during simulation
+  # Ratio metrics (sr_ratio, sr_ratio_adj) are computed post-hoc in Section 5
+  # after establishing N-dependence of the inferential score
+  sr_inf       <- compute_sr_inf(se_classic, se_robust)
+  sr_inf_adj   <- compute_sr_inf_adj(se_classic, se_robust, N)
+  
+  data.table(
+    se_classic   = se_classic,
+    se_robust    = se_robust,
+    sr_inf       = sr_inf,
+    sr_inf_adj   = sr_inf_adj,
+    coverage     = as.integer(coverage)
+  )
+}
+
+#' Optimized Null Simulation for Multiple Regression (p = 3)
+#'
+#' Similar to run_null_simulation_fast() but for a multiple regression model
+#' with an additional noise covariate: y ~ x + z (p = 3 parameters).
+#' Used for sensitivity analysis comparing simple vs multiple regression
+#' finite-sample bias behavior.
+#'
+#' @param N Sample size.
+#' @param n_sims Number of simulations to run (default 1).
+#' @param hc_type HC estimator type (default "HC2").
+#'
+#' @return A data.table with one row per simulation, containing:
+#'   - sim_id: simulation index (1 to n_sims)
+#'   - sr_ratio: raw ratio (se_classic / se_robust) for x coefficient
+run_null_simulation_fast_multiple <- function(N, n_sims = 1, hc_type = "HC2") {
+  
+  # Pre-allocate vectors
+  res_sr_ratio <- numeric(n_sims)
+  
+  k <- 3L  # Intercept + x + z
+  df <- N - k
+  
+  for (s in seq_len(n_sims)) {
+    # DGP: y ~ x + z (homoskedastic null)
+    x <- rnorm(N)
+    z <- rnorm(N)
+    y <- 1 + 0.5 * x + 0.3 * z + rnorm(N)  # Homoskedastic
+    
+    X <- cbind(1, x, z)
+    
+    # OLS Core
+    XtX <- crossprod(X)
+    R <- chol(XtX)
+    XtX_inv <- chol2inv(R)
+    
+    beta <- XtX_inv %*% crossprod(X, y)
+    resid <- as.vector(y - X %*% beta)
+    sigma2 <- sum(resid^2) / df
+    
+    # Classic SE for x (index 2)
+    se_classic_x <- sqrt(sigma2 * XtX_inv[2, 2])
+    
+    # Leverage for HC
+    M <- X %*% XtX_inv
+    h <- rowSums(M * X)
+    M2_sq <- M[, 2]^2  # For x coefficient
+    
+    # Compute u_sq based on HC type
+    if (hc_type == "HC2") {
+      u_sq <- resid^2 / (1 - h)
+    } else if (hc_type == "HC1") {
+      u_sq <- (N / df) * resid^2
+    } else if (hc_type == "HC3") {
+      u_sq <- resid^2 / ((1 - h)^2)
+    } else {
+      stop("Unsupported HC type")
+    }
+    
+    # Robust SE for x
+    se_robust_x <- sqrt(sum(M2_sq * u_sq))
+    
+    res_sr_ratio[s] <- se_classic_x / se_robust_x
+  }
+  
+  data.table(
+    sim_id = seq_len(n_sims),
+    sr_ratio = res_sr_ratio
+  )
+}
+
+#' Run Sensitivity Analysis: Simple vs Multiple Regression
+#'
+#' Compares finite-sample bias in sr_ratio between simple regression (p=2)
+#' and multiple regression (p=3) under the homoskedastic null.
+#' Uses run_null_simulation_fast() and run_null_simulation_fast_multiple().
+#'
+#' @param N_grid Vector of sample sizes to test
+#' @param n_sims Number of simulations per N
+#' @param hc_type HC estimator type (default "HC2")
+#' @param verbose Print progress
+#'
+#' @return data.table with columns: N, model, sr_ratio, inv_sqrt_N
+run_sensitivity_analysis <- function(N_grid, n_sims = 10000, hc_type = "HC2", verbose = TRUE) {
+  
+  if (verbose) {
+    cat("Sensitivity Analysis: Simple vs Multiple Regression\n")
+    cat(sprintf("  N values: %s\n", paste(N_grid, collapse = ", ")))
+    cat(sprintf("  Sims per N: %d\n", n_sims))
+    cat(sprintf("  HC type: %s\n\n", hc_type))
+  }
+  
+  results_list <- list()
+  
+  for (N in N_grid) {
+    if (verbose) cat(sprintf("  Processing N = %d...\n", N))
+    
+    # Simple regression (p = 2)
+    simple_res <- run_null_simulation_fast(N, n_sims = n_sims, hc_types = hc_type)
+    simple_res[, `:=`(N = N, model = "Simple (p=2)", inv_sqrt_N = 1/sqrt(N))]
+    
+    # Multiple regression (p = 3)
+    multiple_res <- run_null_simulation_fast_multiple(N, n_sims = n_sims, hc_type = hc_type)
+    multiple_res[, `:=`(N = N, model = "Multiple (p=3)", inv_sqrt_N = 1/sqrt(N))]
+    
+    results_list[[length(results_list) + 1]] <- simple_res[, .(N, model, sr_ratio, inv_sqrt_N)]
+    results_list[[length(results_list) + 1]] <- multiple_res[, .(N, model, sr_ratio, inv_sqrt_N)]
+  }
+  
+  results <- rbindlist(results_list)
+  
+  if (verbose) cat("Done.\n\n")
+  
+  results
+}
+
+#' Run Benchmark Simulations Against Standard Tests
+#'
+#' Compares the detection power of S_Inf against Breusch-Pagan and White tests.
+#' Uses the canonical heteroskedastic DGP and pipeline functions.
+#'
+#' @param N_grid Vector of sample sizes
+#' @param lambda_grid Vector of heteroskedasticity strengths
+#' @param n_reps Number of replications per cell
+#' @param hc_type HC estimator type for S_Inf (default "HC2")
+#' @param verbose Print progress
+#'
+#' @return data.table with columns: N, lambda, reject_bp, reject_white, reject_sinf
+run_benchmark_simulations <- function(N_grid, lambda_grid, n_reps = 200, hc_type = "HC2", verbose = TRUE) {
+  
+  if (verbose) {
+    cat("Benchmark: S_Inf vs Breusch-Pagan and White Tests\n")
+    cat(sprintf("  N values: %s\n", paste(N_grid, collapse = ", ")))
+    cat(sprintf("  Lambda values: %d levels\n", length(lambda_grid)))
+    cat(sprintf("  Replications: %d per cell\n\n", n_reps))
+  }
+  
+  # Build parameter grid
+  param_grid <- expand.grid(N = N_grid, lambda = lambda_grid)
+  n_cells <- nrow(param_grid)
+  
+  # Results storage
+  results <- data.table(
+    N = param_grid$N,
+    lambda = param_grid$lambda,
+    reject_bp = NA_real_,
+    reject_white = NA_real_,
+    reject_sinf = NA_real_
+  )
+  
+  for (i in seq_len(n_cells)) {
+    N <- param_grid$N[i]
+    lambda <- param_grid$lambda[i]
+    
+    # Run replications
+    reps <- replicate(n_reps, {
+      # Use canonical DGP
+      d <- simulate_heteroskedastic_dgp(N = N, beta_x = 0.5, hetero_strength = lambda, sigma0 = 1.0)
+      fit <- lm(y ~ x, data = d)
+      
+      # Standard tests - wrap in tryCatch for robustness
+      bp_pval <- tryCatch({
+        lmtest::bptest(fit, data = d)$p.value
+      }, error = function(e) { NA_real_ })
+      
+      white_pval <- tryCatch({
+        lmtest::bptest(fit, ~ x + I(x^2), data = d)$p.value
+      }, error = function(e) { NA_real_ })
+      
+      # S_Inf test: T_SInf = sqrt(N) * (SE_robust / SE_classic - 1)
+      se_cls <- summary(fit)$coefficients["x", "Std. Error"]
+      se_rob <- sqrt(diag(sandwich::vcovHC(fit, type = hc_type)))["x"]
+      t_sinf <- sqrt(N) * (se_rob / se_cls - 1)
+      
+      c(
+        reject_bp = if (!is.na(bp_pval)) bp_pval < 0.05 else NA_real_,
+        reject_white = if (!is.na(white_pval)) white_pval < 0.05 else NA_real_,
+        reject_sinf = t_sinf > 1.645
+      )
+    })
+    
+    # Aggregate results, handling NAs
+    results$reject_bp[i] <- if (is.matrix(reps)) mean(reps["reject_bp", ], na.rm = TRUE) else mean(reps[1], na.rm = TRUE)
+    results$reject_white[i] <- if (is.matrix(reps)) mean(reps["reject_white", ], na.rm = TRUE) else mean(reps[2], na.rm = TRUE)
+    results$reject_sinf[i] <- if (is.matrix(reps)) mean(reps["reject_sinf", ], na.rm = TRUE) else mean(reps[3], na.rm = TRUE)
+  }
+  
+  if (verbose) cat("Benchmark complete.\n\n")
+  
+  results
+}
+
+#' Fit OLS model and compute HC confidence intervals
+#'
+#' Convenience wrapper around fit_ols_hc() for simple regression (y ~ x).
+#' Returns classic and robust SEs plus confidence interval bounds.
+#'
+#' @param data data.frame with columns 'x' and 'y'
+#' @param hc_type Robust SE type (default "HC2")
+#' @param conf_level Confidence level (default 0.95)
+#' @param check_rank Logical. If TRUE (default), checks for rank deficiency.
+#'   Set to FALSE only when rank is guaranteed (e.g., in controlled simulations).
+#'
+#' @return list with:
+#'   - se_classic: Classic standard error for slope
+#'   - se_robust: Robust standard error for slope
+#'   - ci_lower: Lower bound of robust CI for slope
+#'   - ci_upper: Upper bound of robust CI for slope
+#'   - beta_x: Estimated slope coefficient
+fit_ols_get_hc_ci <- function(data, hc_type = "HC2", conf_level = 0.95, check_rank = TRUE) {
+  # 1. Setup matrices (simple regression y ~ x with intercept)
+  y <- data$y
+  X <- cbind(1, data$x) 
+  
+  # 2. Fit using core engine
+  fit <- fit_ols_hc(X, y, hc_types = hc_type, check_rank = check_rank)
+  
+  idx <- 2L
+  beta_x     <- fit$beta[idx]
+  se_classic <- fit$se_classic[idx]
+  se_robust  <- fit$se_robust[[hc_type]][idx]
+  
+  n <- nrow(X)
+  k <- ncol(X)
+  df <- n - k
+  alpha <- 1 - conf_level
+  crit_val <- qt(1 - alpha / 2, df = df)
+  
+  ci_lower <- beta_x - crit_val * se_robust
+  ci_upper <- beta_x + crit_val * se_robust
+  
+  list(
+    se_classic = as.numeric(se_classic),
+    se_robust = as.numeric(se_robust),
+    ci_lower = as.numeric(ci_lower),
+    ci_upper = as.numeric(ci_upper),
+    beta_x = as.numeric(beta_x)
+  )
+}

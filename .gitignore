@@ -1,0 +1,49 @@
+# R and RStudio
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+
+# Compiled outputs (but keep PDFs and HTML - they are documentation)
+# *.html  # Allow HTML outputs to be committed as documentation
+# *.pdf  # Allow PDF outputs to be committed as documentation
+
+# LaTeX intermediate files from PDF rendering
+*.aux
+*.log
+*.tex
+*.out
+*.toc
+*.bbl
+*.blg
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Temporary files
+*.swp
+*.swo
+*~
+.#*
+
+# R package checks
+*.Rcheck/
+
+# Large result files (optional - uncomment if results are too large for GitHub)
+# results/*.rds
+# results/*.RData
+
+# Keep results directory structure but ignore large files over 50MB
+results/*.rds
+results/*.RData
+
+# Keep CSV and small files
+!results/*.csv
+!results/*.txt
+
+# IDE files
+.vscode/
+.idea/
